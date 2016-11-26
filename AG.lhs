@@ -1,5 +1,7 @@
 TODO
 - printing the context
+- error with locations
+- checking the specs
 - better syntax to create AG
 - running the attribute grammar
 - github
