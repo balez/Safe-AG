@@ -1,9 +1,7 @@
 TODO
-- errors with locations when building rules
-- checking the specs
-- better syntax to create AG
+- add locations to errors when building rules
+- checking the tree shape
 - running the attribute grammar
-- github
 - (for later) Indexed Tree with phantom variables to reflect the nt, prod, children.
 
 
@@ -207,12 +205,20 @@ We must capture what a type level list is, in order to compute its length.
 
 http://hackage.haskell.org/package/base-4.9.0.0/docs/GHC-Stack.html
 
+General definitions
+
 > cst2 r x y = r
 > cst3 r x y z = r
 > res2 g f x y = g (f x y)
 > res3 g f x y z = g (f x y z)
+
+Maybe, Either
+
 > fromJust (Just x) = x
 > filterJust xs = [ x | Just x <- xs ]
+> justLeft (Left x) = Just x
+> justLeft _ = Nothing
+
 
 String operations (over ShowS)
 
@@ -614,6 +620,11 @@ a call to `local' (see the code of `inh' and `syn').
 > context (Rule (AR a)) = snd (runA a p)
 >   where p = error "context: assert false"
 
+> checkRule :: Rule -> Maybe Error
+> checkRule (Rule (AR a)) =
+>   justLeft $ fst (runA a p)
+>   where p = error "context: assert false"
+
 Errors in a rule.
 
   `Error_Child c p' :
@@ -622,6 +633,7 @@ Errors in a rule.
 
 > data Error =
 >   Error_Child Child Production
+>   deriving Show
 
 *  Contexts, Axioms and Hypothesis
 

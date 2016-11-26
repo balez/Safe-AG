@@ -109,3 +109,13 @@ List of the leaves
 >     , leftTree  |- rightTree!flat
 >     , startTree |- par tailf
 >     ]
+
+ Try
+ > missing btreeG (context tailR)
+
+Trying the error system
+
+> badChild = syn flat leaf (leftTree!flat)
+
+ Try
+ > checkRule badChild
