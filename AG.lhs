@@ -1,5 +1,5 @@
 TODO
-- error with locations
+- errors with locations when building rules
 - checking the specs
 - better syntax to create AG
 - running the attribute grammar
@@ -209,6 +209,8 @@ http://hackage.haskell.org/package/base-4.9.0.0/docs/GHC-Stack.html
 
 > cst2 r x y = r
 > cst3 r x y z = r
+> res2 g f x y = g (f x y)
+> res3 g f x y z = g (f x y z)
 > fromJust (Just x) = x
 > filterJust xs = [ x | Just x <- xs ]
 
@@ -243,8 +245,15 @@ Type of binary operators
 
 Set operations
 
+> foldSet :: Monoid b =>
+>   (a -> b) -> Set a -> b
+> foldSet p = Set.foldr (\x b -> p x `mappend` b) mempty
+
 > allSet :: (a -> Bool) -> Set a -> Bool
-> allSet p = Set.foldr (\x b -> p x && b) True
+> allSet p = getAll . foldSet (All . p)
+
+> unionSets :: Ord b => (a -> Set b) -> Set a -> Set b
+> unionSets = foldSet
 
 An attribute grammar has two elements: a context free grammar
 describing a language, or equivalently, the type of its parse
@@ -315,6 +324,11 @@ might lead to misunderstanding in case homonymes are defined.
 >   show = snd . child_name
 
 > non_terminal = NT
+
+Remark: if the children are built with a different
+production, then the production that we create will have
+distinct children (new ones with the same short name but
+different fully qualified name).
 
 > production :: NonTerminal -> Name -> Children -> Production
 > production n p cs = Production (n,p) (children_spec cs)
@@ -562,7 +576,7 @@ a call to `local' (see the code of `inh' and `syn').
 
 > context :: Rule -> Context
 > context (Rule (AR a)) = snd (runA a p)
->   where p = error "context:no production"
+>   where p = error "context: assert false"
 
 Errors in a rule.
 
@@ -698,42 +712,55 @@ constraints. The only thing we can do is to check whether a
 context is complete: i.e. all `require` constraints are met by
 matching `ensure` constraints.
 
-> complete_ctx ::
->   Grammar -> Context -> Bool
-> complete_ctx g c =
->   complete S g (ensure_parents c) (require_synthesized c)
->   && complete I g (ensure_children c) (require_inherited c)
-
 > complete ::
->   Kind k -> Grammar -> Set (Ensure k) -> Set (Require k) -> Bool
-> complete k g e =
->   allSet (check_require k g e)
+>   Grammar -> Context -> Bool
+> complete = nullMissing `res2` missing
 
-> check_require ::
->   Kind k -> Grammar -> Set (Ensure k) -> Require k -> Bool
-> check_require S =
->   check_require_with prod_nt ensured_prod id S
-> check_require I =
->   check_require_with child_nt ensured_child gram_children I
-> check_require T = cst3 True -- we cannot check those constraints yet.
+Missing rules
 
-> check_require_with :: (Ord a) =>
+The missing `ensure` constraints for the rules to be complete.
+
+> type Missing = (Set (Ensure I), Set (Ensure S))
+> nullMissing (x,y) = Set.null x && Set.null y
+
+> missing ::
+>   Grammar -> Context -> Missing
+> missing g c =
+>   ( missingK I g (ensure_children c) (require_inherited c)
+>   , missingK S g (ensure_parents c) (require_synthesized c))
+
+> missingK ::
+>   Kind k -> Grammar -> Set (Ensure k) -> Set (Require k) -> Set (Ensure k)
+> missingK = unionSets `res3` missing1
+
+> missing1 ::
+>   Kind k -> Grammar -> Set (Ensure k) -> Require k -> Set (Ensure k)
+> missing1 S =
+>   missing1_with prod_nt ensure_parent id S
+>   where ensure_parent (Constraint _ a) p = (Ensure_Parent p a)
+> missing1 I =
+>   missing1_with child_nt ensure_child gram_children I
+>   where ensure_child (Constraint _ a) c = (Ensure_Child c a)
+> missing1 T = cst3 Set.empty
+
+> missing1_with :: (Ord a) =>
 >   (a -> NonTerminal) ->
->   (Ensure k -> a) ->
+>   (Require k -> a -> Ensure k) ->
 >   (Grammar -> Set a) ->
->   Kind k -> Grammar -> Set (Ensure k) -> Require k -> Bool
-> check_require_with proj ensure_elem list_elem k gram ensure
+>   Kind k -> Grammar -> Set (Ensure k) -> Require k -> Set (Ensure k)
+> missing1_with elem_nt elem_ensure gram_elems k gram ensure
 >   r@(Constraint n a) =
->     Set.null $ Set.difference matching ensured
+>     Set.difference matching ensured
 >   where
 >     matching =
->       Set.filter (\x -> proj x == n) (list_elem gram)
+>       Set.map (elem_ensure r)
+>        $ Set.filter (\x -> elem_nt x == n) (gram_elems gram)
 >     ensured =
->       Set.map ensure_elem $
->         Set.filter (\e -> ensure_constraint e == r) ensure
+>       Set.filter (\e -> ensure_constraint e == r) ensure
+
 
 The primitive ways to update the context are through the
-require_* and ensure_* functions.
+require_* and ensure_* functions given below.
 
 > tell_parent f = current_production >>= tell . f
 
