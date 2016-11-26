@@ -290,7 +290,7 @@ ProdName anyways.
 
 > data Production = Production
 >   { prod_name :: ProdName
->   , prod_children_spec :: [Orphan] }
+>   , prod_orphans :: [Orphan] }
 >   deriving (Eq, Ord)
 
 > data Child = Child
@@ -306,11 +306,11 @@ ProdName anyways.
 > prod_child p (c,n) = Child (p,c) n
 
 > prod_children :: Production -> Children
-> prod_children p = map (prod_child p) $ prod_children_spec p
+> prod_children p = map (prod_child p) $ prod_orphans p
 
-> child_spec :: Child -> Orphan
-> child_spec c = (snd (child_name c), child_nt c)
-> children_spec = map child_spec
+> orphan :: Child -> Orphan
+> orphan c = (snd (child_name c), child_nt c)
+> orphans = map orphan
 
 The show instances display the non-qualified names.  This
 might lead to misunderstanding in case homonymes are defined.
@@ -331,7 +331,7 @@ distinct children (new ones with the same short name but
 different fully qualified name).
 
 > production :: NonTerminal -> Name -> Children -> Production
-> production n p cs = Production (n,p) (children_spec cs)
+> production n p cs = Production (n,p) (orphans cs)
 
 > child :: Production -> Name -> NonTerminal -> Child
 > child p c n = Child (p, c) n

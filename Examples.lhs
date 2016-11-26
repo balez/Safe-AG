@@ -43,7 +43,7 @@ Example Repmin
  > rightTree = child fork "rightTree" btree
  
  
-Using the DSL, the same grammar is written:
+Using the DSL, the same grammar is written as follows:
 
 > [  root  ::= start :@ [startTree]
 >  , btree ::= fork  :@ [leftTree, rightTree]
