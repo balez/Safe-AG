@@ -213,7 +213,9 @@ http://hackage.haskell.org/package/base-4.9.0.0/docs/GHC-Stack.html
 > fromJust (Just x) = x
 > filterJust xs = [ x | Just x <- xs ]
 
- > import Data.Map ((!))
+String operations (over ShowS)
+
+> str s = (s ++)
 
 Map operations
 
@@ -290,6 +292,17 @@ ProdName anyways.
 
 > type Children = [Child]
 
+The show instances display the non-qualified names.  This
+might lead to misunderstanding in case homonymes are defined.
+
+> instance Show NonTerminal where
+>   show (NT n) = n
+> instance Show Production where
+>   show = snd . prod_name
+
+> instance Show Child where
+>   show = snd . child_name
+
 > non_terminal = NT
 
 > production :: NonTerminal -> Name -> Children -> Production
@@ -363,7 +376,9 @@ heterogenous equality on kinds
 > dualOrdering GT = LT
 > dualOrdering EQ = EQ
 
-> data Attr m a = Attr Name (Kind m)
+> data Attr k a = Attr
+>   { attr_name :: Name
+>   , attr_kind :: Kind k}
 
 > attr :: Typeable a => Name -> Kind m -> p a -> Attr m a
 > attr n k _ = Attr n k
@@ -395,6 +410,12 @@ attributes by their types.
 
 > compareAttr :: (Typeable a, Typeable a') => Attr k a -> Attr k' a' -> Ordering
 > compareAttr x y = Attribute x `compare` Attribute y
+
+> instance Typeable a => Show (Attr k a) where
+>   show = attr_name
+
+ >   showPrec _ a@(Attr n k) =
+ >     str n . str " : " . shows k . str " " . shows (typeRep a)
 
 An attribution is a finite map from attribute name to values.
 Note: the use of Dynamics prevents us from having polymorphic
@@ -475,8 +496,14 @@ that is not a valid child of the current production. Or an
 attribute with the wrong type.
 And lastly, we collect constraints.
 
-> newtype A a = A {runA :: ReaderT Production (ExceptT Error (Writer Context)) a} -- the aspect monad
+> newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the aspect monad
 >   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError Error, MonadWriter Context)
+
+private
+
+> runA :: A a -> Production -> (Either Error a, Context)
+> runA (A a) p =
+>   runWriter . runExceptT $ runReaderT a p
 
 > current_production :: A Production
 > current_production = ask
@@ -510,7 +537,7 @@ synthesized attributions for the children and compute a
 synthesized attribution for the parents and inherited
 attributions for the children.
 
-Rule is abstract, only operations are the monoid
+Rule is abstract, only operations are the monoid, and computing the context.
 
 > newtype Rule = Rule (AR Family)
 > inRule2 f (Rule x) (Rule y) = Rule (f x y)
@@ -529,6 +556,14 @@ Rule is abstract, only operations are the monoid
 
 > concatRules = foldl mergeRule emptyRule
 
+Note: the production in the readerT is not used for rules.
+Because when we build rules we always override the production with
+a call to `local' (see the code of `inh' and `syn').
+
+> context :: Rule -> Context
+> context (Rule (AR a)) = snd (runA a p)
+>   where p = error "context:no production"
+
 Errors in a rule.
 
   `Error_Child c p' :
@@ -538,7 +573,18 @@ Errors in a rule.
 > data Error =
 >   Error_Child Child Production
 
-* Constraints, Contexts
+*  Contexts, Axioms and Hypothesis
+
+While building attribution rules, we build a rule of
+inference in parallel that we call `Context` here. The
+context is formed of a set of premises and a set of
+conclusions. The meaning of the context is that the
+conjunction of premises entails the conjunction of
+conclusions. The premises are captured by the datatype
+`Require` and the conclusion by the datatype `Ensure`.
+
+When the rule set is deamed complete, we can check its
+context with respect to a grammar.
 
 Note that the use of the kind and the phantom type on
 Attributes ensures that attributes can only be used with
@@ -550,6 +596,8 @@ production.
 Therefore we only need to keep track of attributes that are
 used (required) and attributes that are defined (ensured).
 
+Conclusions
+
 > data Ensure k where
 >   Ensure_Child :: Typeable a => Child -> Attr I a -> Ensure I
 >   Ensure_Parent :: Typeable a => Production -> Attr S a -> Ensure S
@@ -559,14 +607,6 @@ used (required) and attributes that are defined (ensured).
 
 > ensured_prod :: Ensure S -> Production
 > ensured_prod (Ensure_Parent p a) = p
-
-> data Constraint k where
->   Constraint :: Typeable a => NonTerminal -> Attr k a -> Constraint k
-
-> type Require = Constraint
-
-> instance Eq (Ensure k) where
->   e == e'  =  compare e e' == EQ
 
 > instance Eq (Constraint k) where
 >   r == r'  =  compare r r' == EQ
@@ -579,9 +619,31 @@ used (required) and attributes that are defined (ensured).
 >   compare (Ensure_Child _ _) _ = LT
 >   compare _ _ = GT
 
+> instance Show (Ensure k) where
+>   showsPrec _ (Ensure_Child c a) = shows c . ('!':) . shows a
+>   showsPrec _ (Ensure_Parent p a) = str "par ("  . shows p . str "," . shows a . str ")"
+
+Constraints
+
+> data Constraint k where
+>   Constraint :: Typeable a => NonTerminal -> Attr k a -> Constraint k
+
+Premises
+
+> type Require = Constraint
+
+> instance Eq (Ensure k) where
+>   e == e'  =  compare e e' == EQ
+
 > instance Ord (Constraint k) where
 >   compare (Constraint n a) (Constraint n' a')
 >     = lexicographic (compare n n') (compareAttr a a')
+
+> instance Show (Constraint k) where
+>   showsPrec _ (Constraint n a) = shows n . str "." . shows a
+
+
+Each conclusion is participating in proving one premise.
 
 > ensure_constraint :: Ensure k -> Constraint k
 > ensure_constraint (Ensure_Child c a) =
@@ -589,13 +651,13 @@ used (required) and attributes that are defined (ensured).
 > ensure_constraint (Ensure_Parent p a) =
 >   Constraint (prod_nt p) a
 
-Contexts are modelled with sets of constraints. They form a
-monoid, therefore the Writer monad uses the mappend function
-to update the constraints. Note that contexts are cannot be
-more simplified.
+Contexts are modelled with sets of premises and
+conclusions. They form a monoid, therefore the Writer monad
+uses the mappend function to update the constraints. Note
+that contexts are cannot be more simplified.
 
-The terminals constraints are always required and never
-ensured: those constraints will be used when checking that
+The terminals premises do not have a corresponding
+conclusions those constraints will be used when checking that
 the input tree is well-formed.
 
 > data Context = Ctx
@@ -605,6 +667,7 @@ the input tree is well-formed.
 >   , require_parents   :: Set (Require I)
 >   , require_terminals :: Set (Require T)
 >   }
+>   deriving Show
 
 > emptyCtx :: Context
 > emptyCtx = Ctx Set.empty Set.empty Set.empty Set.empty Set.empty
@@ -766,16 +829,30 @@ The strict versions are all instances of the following:
 > ter :: Typeable a => Attr T a -> AR a
 > ter = strictProj terM require_terminal
 
+(private) Common boiler plate to build a rule (shared by inh and syn)
+
+> build_rule :: Typeable a =>
+>   Attr k a ->
+>   Production ->
+>   A () ->
+>   (AttrMap -> Family) ->
+>   AR a -> Rule
+> build_rule a p c f r = Rule $ AR $ do
+>    r' <- local (const p) (c >> runAR r)
+>    return $ fam <$> r'
+>   where
+>     fam x = f (Attribute a |-> toDyn x)
+
+
 Inherited attributes are defined for a specific child of a
 production.  The production is determined by the Child.
 
+NOTE: since the child_prod is ProdName instead of a Production,
+we need to add a Production as an argument.
+
 > inh :: Typeable a => Attr I a -> Child -> AR a -> Rule
-> inh a c r = Rule $
->    ensure_child c a `bindAR_`
->    (fam <$> r)
->   where
->     fam x = emptyFam { childrenAttrs =
->                           c |-> Attribute a |-> toDyn x }
+> inh a c = build_rule a undefined (ensure_child c a)
+>   $ \attrs -> emptyFam { childrenAttrs = c |-> attrs }
 
 > inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Rule
 > inhs a = foldl (\rs (c,r) -> rs & inh a c r) emptyRule
@@ -783,11 +860,8 @@ production.  The production is determined by the Child.
 Synthesized attributes are defined for the parent of a production.
 
 > syn :: Typeable a => Attr S a -> Production -> AR a -> Rule
-> syn a p r = Rule $ AR $ do
->   r' <- local (const p) (ensure_parent a >> runAR r)
->   return $ fam <$> r'
->  where
->   fam x = emptyFam { parentAttrs = Attribute a |-> toDyn x }
+> syn a p = build_rule a p (ensure_parent a)
+>   $ \attrs -> emptyFam { parentAttrs = attrs }
 
 > syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Rule
 > syns a = foldl (\rs (p,r) -> rs & syn a p r) emptyRule
