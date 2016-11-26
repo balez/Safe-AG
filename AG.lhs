@@ -663,8 +663,8 @@ the input tree is well-formed.
 > data Context = Ctx
 >   { ensure_children   :: Set (Ensure I)
 >   , ensure_parents    :: Set (Ensure S)
->   , require_children  :: Set (Require S)
->   , require_parents   :: Set (Require I)
+>   , require_synthesized  :: Set (Require S)
+>   , require_inherited   :: Set (Require I)
 >   , require_terminals :: Set (Require T)
 >   }
 >   deriving Show
@@ -701,8 +701,8 @@ matching `ensure` constraints.
 > complete_ctx ::
 >   Grammar -> Context -> Bool
 > complete_ctx g c =
->   complete S g (ensure_parents c) (require_children c)
->   && complete I g (ensure_children c) (require_parents c)
+>   complete S g (ensure_parents c) (require_synthesized c)
+>   && complete I g (ensure_children c) (require_inherited c)
 
 > complete ::
 >   Kind k -> Grammar -> Set (Ensure k) -> Set (Require k) -> Bool
@@ -748,7 +748,7 @@ Generate errors if the child is not valid in the current production.
 >   Typeable a => Child -> Attr S a -> A ()
 > require_child c a = do
 >   assert_child c
->   tell $ emptyCtx { require_children =
+>   tell $ emptyCtx { require_synthesized =
 >                       Set.singleton (Constraint (child_nt c) a) }
 
 > ensure_child ::
@@ -761,7 +761,7 @@ Generate errors if the child is not valid in the current production.
 > require_parent ::
 >   Typeable a => Attr I a -> A ()
 > require_parent a = tell_parent $ \p ->
->   emptyCtx { require_parents =
+>   emptyCtx { require_inherited =
 >                 Set.singleton (Constraint (prod_nt p) a) }
 
 > ensure_parent ::
