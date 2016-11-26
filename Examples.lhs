@@ -25,22 +25,36 @@ Example Repmin
 > data BTree = Fork BTree BTree | Leaf Int deriving Typeable
 > data Root = Start BTree
 
-Non-terminals
+ Non-terminals
 
-> btree = non_terminal "BTree"
-> root = non_terminal "Root"
+ > btree = non_terminal "BTree"
+ > root = non_terminal "Root"
+ 
+ Productions
+ 
+ > start = production btree "Start" [startTree]
+ > fork = production btree "Fork" [leftTree, rightTree]
+ > leaf = production btree "Leaf" []
+ 
+ Children
+ 
+ > startTree = child start "startTree" btree
+ > leftTree = child fork "leftTree" btree
+ > rightTree = child fork "rightTree" btree
+ 
+ 
+Using the DSL, the same grammar is written:
 
-Productions
+> [  root  ::= start :@ [startTree]
+>  , btree ::= fork  :@ [leftTree, rightTree]
+>           :| leaf  :@ []
+>  ] = grammar $
+>     [ "Root"  ::= "Start" :@ ["startTree" ::: btree]
+>     , "BTree" ::= "Fork"  :@ ["leftTree"  ::: btree
+>                              ,"rightTree" ::: btree]
+>                :| "Leaf"  :@ []
+>     ]
 
-> start = production btree "Start" [startTree]
-> fork = production btree "Fork" [leftTree, rightTree]
-> leaf = production btree "Leaf" []
-
-Children
-
-> startTree = child start "startTree" btree
-> leftTree = child fork "leftTree" btree
-> rightTree = child fork "rightTree" btree
 
 Attributes
 
@@ -53,6 +67,7 @@ Attributes
 Grammar
 
 > btreeG = Set.fromList [start,fork,leaf]
+
 
 Rules
 

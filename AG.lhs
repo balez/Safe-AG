@@ -290,7 +290,7 @@ ProdName anyways.
 
 > data Production = Production
 >   { prod_name :: ProdName
->   , prod_children_spec :: [ChildSpec] }
+>   , prod_children_spec :: [Orphan] }
 >   deriving (Eq, Ord)
 
 > data Child = Child
@@ -298,17 +298,17 @@ ProdName anyways.
 >   , child_nt ::  NonTerminal }
 >   deriving (Eq, Ord)
 
-> type ChildSpec = (Name, NonTerminal)
+> type Orphan = (Name, NonTerminal)
 
 > type Children = [Child]
 
-> prod_child :: Production -> ChildSpec -> Child
+> prod_child :: Production -> Orphan -> Child
 > prod_child p (c,n) = Child (p,c) n
 
 > prod_children :: Production -> Children
 > prod_children p = map (prod_child p) $ prod_children_spec p
 
-> child_spec :: Child -> ChildSpec
+> child_spec :: Child -> Orphan
 > child_spec c = (snd (child_name c), child_nt c)
 > children_spec = map child_spec
 
@@ -338,6 +338,45 @@ different fully qualified name).
 
 > prod_nt = fst . prod_name
 > child_prod = fst . child_name
+
+* DSL for creating the grammar
+
+> infix 1 ::=
+> infixr 2 :|
+> infix 3 :@
+> infix 4 :::
+
+> type GrammarSpec = [NTSpec Name Name ChildSpec]
+> data NTSpec n p c =
+>   n ::= ProdSpecs n p c
+
+> data ProdSpecs n p c
+>   = p :@ [c]
+>   | ProdSpecs n p c :| ProdSpecs n p c
+
+> data ChildSpec =
+>   Name ::: NonTerminal
+
+Building each element of the grammar. Typically we bind the result
+in a pattern binding that has the same shape as the specification.
+See Examples.lhs.
+
+> grammar ::
+>   GrammarSpec -> [NTSpec NonTerminal Production Child]
+> grammar = map ntspec
+>   where
+>     ntspec (name ::= prods) =
+>       let nt = non_terminal name in (nt ::= prodspec nt prods)
+>     prodspec nt (name :@ children) =
+>       let p = production nt name cs
+>           cs = map (childspec p) children
+>       in p :@ cs
+>     prodspec nt (p :| p') =
+>       prodspec nt p :| prodspec nt p'
+>     childspec prod (name ::: nt) =
+>       child prod name nt
+
+* Grammar
 
 A grammar can be given by a set of production.
 This fully specifies a grammar, and the representation is unique.
@@ -427,9 +466,6 @@ attributes by their types.
 
 > instance Typeable a => Show (Attr k a) where
 >   show = attr_name
-
- >   showPrec _ a@(Attr n k) =
- >     str n . str " : " . shows k . str " " . shows (typeRep a)
 
 An attribution is a finite map from attribute name to values.
 Note: the use of Dynamics prevents us from having polymorphic
