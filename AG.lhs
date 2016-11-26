@@ -1,6 +1,5 @@
 TODO
-- raise kind errors
-- correct the context simplification
+- printing the context
 - better syntax to create AG
 - running the attribute grammar
 - github
