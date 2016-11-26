@@ -10,6 +10,7 @@
 > module Examples where
 > import Data.Dynamic
 > import qualified Data.Set as Set
+> import qualified Data.Map as Map
 > import Control.Applicative
 > import AG
 
@@ -22,7 +23,8 @@ Type proxies (used in attribute definitions)
 
 Example Repmin
 
-> data BTree = Fork BTree BTree | Leaf Int deriving Typeable
+> data BTree = Fork BTree BTree | Leaf Int
+>            deriving (Show, Typeable)
 > data Root = Start BTree
 
  Non-terminals
@@ -90,6 +92,11 @@ must be given last.
 >   , start |- startTree!ntree
 >   ]
 
+ Try
+ > missing btreeG (context ntreeR)
+ > missing btreeG repminR
+
+
 List of the leaves
 
 > tailf = attr "tail" I (pList pInt)
@@ -112,6 +119,10 @@ List of the leaves
 
  Try
  > missing btreeG (context tailR)
+ > missing btreeG flattenR
+
+ > let (Right r,c) = runRule repminR
+ > in unsafe_run r example emptyAttrs
 
 Trying the error system
 
@@ -119,3 +130,10 @@ Trying the error system
 
  Try
  > checkRule badChild
+
+Input Tree
+
+> example = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
+>   where s x = Node start (startTree |-> x) emptyAttrs
+>         x * y = Node fork (leftTree |-> x \/ rightTree |-> y) emptyAttrs
+>         l x = Node leaf Map.empty (val |=> x)

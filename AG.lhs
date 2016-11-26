@@ -200,6 +200,7 @@ We must capture what a type level list is, in order to compute its length.
 > import Data.Set (Set)
 > import Data.List (nub)
 > import qualified Data.Map as Map
+> import Data.Map (Map)
 > import Data.Traversable
 > import Unknown
 
@@ -227,7 +228,7 @@ String operations (over ShowS)
 Map operations
 
 > infixr 1 :->
-> type (:->) = Map.Map
+> type (:->) = Map
 
 
 > infixr 2 |->, |-
@@ -248,6 +249,14 @@ Type of binary operators
 > infixr 1 <+>
 > (<+>) :: Monoid a => Op a
 > (<+>) = mappend
+
+Pointwise application for finite maps.
+The result is defined on the intersection of the arguments.
+Since we cannot define pure, (what would the domain be?)
+then it's not an applicative instance.
+
+> applyMap :: Ord k => Map k (a -> b) -> Map k a -> Map k b
+> applyMap = Map.intersectionWith ($)
 
 Set operations
 
@@ -270,9 +279,10 @@ of the tree).
 We start by defining a general tree type. The tree is parameterised with
 node labels, which are simply the production in the case of the input tree,
 but can also be paired with attributes in the case of a decorated tree.
-The `Val' constructor introduces the non-terminal data.
+The `AttrMap' field introduces the non-terminal data.
 
-> data Tree n = Node n (Child :-> Tree n) | Val AttrMap
+> data Tree n = Node n (Child :-> Tree n) AttrMap
+>             deriving Show
 > type InputTree = Tree Production
 > type DecoratedTree = Tree (Production, AttrMap)
 
@@ -473,6 +483,9 @@ attributes by their types.
 > instance Typeable a => Show (Attr k a) where
 >   show = attr_name
 
+> instance Show Attribute where
+>   show (Attribute x) = show x
+
 An attribution is a finite map from attribute name to values.
 Note: the use of Dynamics prevents us from having polymorphic
 attributes.
@@ -486,6 +499,8 @@ attributes.
 > lookupAttr x = Map.lookup (Attribute x)
 > projAttr :: Typeable a => AttrMap -> Attr k a -> Maybe Dynamic
 > projAttr = flip lookupAttr
+> (|=>) :: Typeable a => Attr k a -> a -> AttrMap
+> a |=> x = Attribute a |-> toDyn x
 
 Parent and children and terminal attributions.
 
@@ -612,18 +627,22 @@ Rule is abstract, only operations are the monoid, and computing the context.
 
 > concatRules = foldl mergeRule emptyRule
 
+`runRule` is PRIVATE
+
+> runRule :: Rule -> (Either Error (Family -> Family), Context)
+> runRule (Rule (AR a)) = runA b p
+>   where b = liftM (runReader . runR) a
+>         p = error "context: assert false"
+
 Note: the production in the readerT is not used for rules.
 Because when we build rules we always override the production with
 a call to `local' (see the code of `inh' and `syn').
 
 > context :: Rule -> Context
-> context (Rule (AR a)) = snd (runA a p)
->   where p = error "context: assert false"
+> context = snd . runRule
 
 > checkRule :: Rule -> Maybe Error
-> checkRule (Rule (AR a)) =
->   justLeft $ fst (runA a p)
->   where p = error "context: assert false"
+> checkRule = justLeft . fst . runRule
 
 Errors in a rule.
 
@@ -631,8 +650,9 @@ Errors in a rule.
      when child `c' was used in the context of the production `p`
      which doesn't list this child.
 
-> data Error =
->   Error_Child Child Production
+> data Error
+>   = Error_Child Child Production
+>   | Error_Missing_Rules Missing
 >   deriving Show
 
 *  Contexts, Axioms and Hypothesis
@@ -1016,3 +1036,29 @@ By hypothesis, we know that the attribute will be defined for them.
 >   parent `bindAR` \nt ->
 >   let cs' = [ c | c <- cs, child_nt c == nt ] in
 >   (reduce . filterJust) <$> traverse (?a) cs
+
+* Running the grammar
+
+> type SemTree = AttrMap -> AttrMap
+
+> type SemProd = Child :-> SemTree -> AttrMap -> SemTree
+
+`sem_rule` is an algebra
+
+> sem_rule :: (Family -> Family) -> SemProd
+> sem_rule rule forest terminals inh = syn
+>   where
+>     Family syn inh_children _ = rule $ Family inh syn_children terminals
+>     syn_children = forest `applyMap` inh_children
+
+
+`sem_tree' computes the iteration of the algebra.
+
+> sem_tree :: SemProd -> InputTree -> SemTree
+> sem_tree sem_prod = sem
+>   where sem (Node p cs ts) = sem_prod (Map.map sem cs) ts
+
+> unsafe_run :: (Family -> Family) -> InputTree -> SemTree
+> unsafe_run = sem_tree . sem_rule
+
+ > run :: Rule -> Either Error (InputTree -> SemTree)
