@@ -64,7 +64,9 @@ must be given last.
 > gminR = inh gmin startTree (startTree!locmin)
 >         & copyP gmin fork
 
-> locminR = syn locmin leaf (ter val)
+> locminR = syns locmin
+>           [ leaf |- ter val
+>           , start |- startTree!locmin]
 >   & collectAll locmin minimum fork
 
 > ntreeR = syns ntree
@@ -78,13 +80,15 @@ List of the leaves
 > tailf = attr "tail" I (pList pInt)
 > flat = attr "flat" S (pList pInt)
 
-> flattenR =
->   syns flat
+> flattenR = flatR & tailR
+
+> flatR = syns flat
 >     [ start |- startTree!flat
 >     , leaf  |- (:) <$> ter val <*> par tailf
 >     , fork  |- leftTree!flat
 >     ]
->   &
+
+> tailR =
 >   inhs tailf
 >     [ rightTree |- par tailf
 >     , leftTree  |- rightTree!flat
