@@ -1,5 +1,4 @@
 TODO
-- printing the context
 - error with locations
 - checking the specs
 - better syntax to create AG
@@ -269,7 +268,7 @@ where the `Val' constructor contains the terminal data. and
 > type Name = String
 > type NonTerminalName = Name
 > type ProdName = (NonTerminal, Name)
-> type ChildName = (ProdName, Name)
+> type ChildName = (Production, Name)
 > type AttrName = Name
 
 Note that the child doesn't link to the production, because
@@ -282,7 +281,7 @@ ProdName anyways.
 
 > data Production = Production
 >   { prod_name :: ProdName
->   , prod_children :: Children }
+>   , prod_children_spec :: [ChildSpec] }
 >   deriving (Eq, Ord)
 
 > data Child = Child
@@ -290,7 +289,19 @@ ProdName anyways.
 >   , child_nt ::  NonTerminal }
 >   deriving (Eq, Ord)
 
+> type ChildSpec = (Name, NonTerminal)
+
 > type Children = [Child]
+
+> prod_child :: Production -> ChildSpec -> Child
+> prod_child p (c,n) = Child (p,c) n
+
+> prod_children :: Production -> Children
+> prod_children p = map (prod_child p) $ prod_children_spec p
+
+> child_spec :: Child -> ChildSpec
+> child_spec c = (snd (child_name c), child_nt c)
+> children_spec = map child_spec
 
 The show instances display the non-qualified names.  This
 might lead to misunderstanding in case homonymes are defined.
@@ -306,30 +317,19 @@ might lead to misunderstanding in case homonymes are defined.
 > non_terminal = NT
 
 > production :: NonTerminal -> Name -> Children -> Production
-> production n p cs = Production (n,p) cs
+> production n p cs = Production (n,p) (children_spec cs)
 
 > child :: Production -> Name -> NonTerminal -> Child
-> child p c n = Child (prod_name p, c) n
+> child p c n = Child (p, c) n
 
 > prod_nt = fst . prod_name
 > child_prod = fst . child_name
 
 A grammar can be given by a set of production.
-Also note that not all values of type `Grammar' are valid grammars:
-we need to check that the productions are all valid.
+This fully specifies a grammar, and the representation is unique.
+(up to set equality)
 
 > type Grammar = Set Production
-
-Later we can make the return type convey error information.
-
-> valid_grammar :: Grammar -> Bool
-> valid_grammar = all valid_production . Set.toList
-
-Later we can make the return type convey error information.
-
-> valid_production :: Production -> Bool
-> valid_production p = all valid_child (prod_children p)
->   where valid_child c = child_prod c == prod_name p
 
 > gram_children :: Grammar -> Set Child
 > gram_children gram =
@@ -851,7 +851,7 @@ NOTE: since the child_prod is ProdName instead of a Production,
 we need to add a Production as an argument.
 
 > inh :: Typeable a => Attr I a -> Child -> AR a -> Rule
-> inh a c = build_rule a undefined (ensure_child c a)
+> inh a c = build_rule a (child_prod c) (ensure_child c a)
 >   $ \attrs -> emptyFam { childrenAttrs = c |-> attrs }
 
 > inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Rule
