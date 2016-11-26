@@ -9,6 +9,7 @@
 
 > module Examples where
 > import Data.Dynamic
+> import qualified Data.Set as Set
 > import Control.Applicative
 > import AG
 
@@ -49,10 +50,28 @@ Attributes
 > locmin = attr "locmin" S pInt
 > ntree = attr "ntree" S pBTree
 
+Grammar
+
+> btreeG = Set.fromList [start,fork,leaf]
+
 Rules
 
-> gminR = copyP gmin fork
->       & inh gmin startTree (startTree ! locmin)
+Remember the priority of merging is left to right, so copy
+must be given last.
+
+> repminR = gminR & locminR & ntreeR
+
+> gminR = inh gmin startTree (startTree!locmin)
+>         & copyP gmin fork
+
+> locminR = syn locmin leaf (ter val)
+>   & collectAll locmin minimum fork
+
+> ntreeR = syns ntree
+>   [ leaf |- liftA Leaf (par gmin)
+>   , fork |- liftA2 Fork (leftTree!ntree) (rightTree!ntree)
+>   , start |- startTree!ntree
+>   ]
 
 List of the leaves
 
@@ -61,13 +80,13 @@ List of the leaves
 
 > flattenR =
 >   syns flat
->     [ start |- startTree ! flat
+>     [ start |- startTree!flat
 >     , leaf  |- (:) <$> ter val <*> par tailf
->     , fork  |- leftTree ! flat
+>     , fork  |- leftTree!flat
 >     ]
 >   &
 >   inhs tailf
 >     [ rightTree |- par tailf
->     , leftTree  |- rightTree ! flat
+>     , leftTree  |- rightTree!flat
 >     , startTree |- par tailf
 >     ]
