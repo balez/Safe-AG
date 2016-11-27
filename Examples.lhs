@@ -28,15 +28,15 @@ Example Repmin
 > data Root = Start BTree
 
  Non-terminals
-
+ 
  > btree = non_terminal "BTree"
  > root = non_terminal "Root"
  
  Productions
  
- > start = production btree "Start" [startTree]
- > fork = production btree "Fork" [leftTree, rightTree]
- > leaf = production btree "Leaf" []
+ > start = production btree "Start" [startTree] nilT
+ > fork = production btree "Fork" [leftTree, rightTree] nilT
+ > leaf = production btree "Leaf" [] (val `consT` nilT)
  
  Children
  
@@ -51,12 +51,19 @@ Using the DSL, the same grammar is written as follows:
 >  , btree ::= fork  :@ [leftTree, rightTree]
 >           :| leaf  :@ []
 >  ] = grammar $
->     [ "Root"  ::= "Start" :@ ["startTree" ::: btree]
+>     [ "Root"  ::= "Start" :@ ["startTree" ::: btree] :& x
 >     , "BTree" ::= "Fork"  :@ ["leftTree"  ::: btree
->                              ,"rightTree" ::: btree]
->                :| "Leaf"  :@ []
+>                              ,"rightTree" ::: btree] :& x
+>                :| "Leaf"  :@ [] :& x --val & x
 >     ]
+>   where x = nilT
+>         --(&) = consT
 
+A non-terminal can be extended later with new productions:
+
+> cons :@ [tailTree] =
+>   productions $
+>     btree ::= "Cons" :@ ["tailTree" ::: btree] :& nilT
 
 Attributes
 

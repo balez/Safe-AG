@@ -1,13 +1,15 @@
-TODO
+* TODO
 - add locations to errors when building rules
 - checking the tree shape
 - running the attribute grammar
 - (for later) Indexed Tree with phantom variables to reflect the nt, prod, children.
 
 
-IMPORTANT:
+* IMPORTANT:
 - when using the library primitives, the user should never
   SEE any `Dynamic', always concrete types.
+- the user should never SEE Attribute, only `Attr k a'
+
 
 EDSL for attribute grammars in Haskell inspired by De Moor's
 design.  With runtime typechecking. It is the dynamic version
@@ -33,154 +35,6 @@ that writes constraints and that read the input of the rules
 (a family). But since we want to collect before computing,
 the writer must come before the reader. This means we do not
 have access to the input types.
-
-* Could we run the AG in a typed way?
-
-Rather than run the AG on the general tree type.
-
- > type Partial a = Either Error a -- success or failure monad
- 
- > check :: spec t i s -> Rule -> Partial (AG t i s)
- > run :: AG t i s -> t -> i -> s
-
-The spec should say
-- The grammar (set of productions)
-- The set of attributes (packaged with their types) and their domain (set of non-terminals)
-
-  A finite map from attributes to non-terminals will contain
-  the necessary information (since we can obtain the set of the
-  keys from the map)
-
-Thus:
-
- > type Grammar = Set Production
- > type Domain = Attribute :-> Set NonTerminal
- > type AGSpec = (Grammar, Domain)
-
-In the typed version, in addition we must build (total) conversions between
-- t and the tree type,
-- i,s and the AttrMap type.
-
-To specify i and s, we must keep track of the attributes that
-they will be using and build conversion functions
-(i -> AttrMap) and (AttrMap -> s).
-
-`AttrSpec' is a list of attributes with existential
-quantification over the attribute type.
-
- > type AttrSpec = [Attribute]
-
-For the synthesized attributes the following interface is enough.
-(AttrSpec, InhSpec, SynSpec, Attrs, Attribute are all abstract types)
-
- > type SynSpec s = Writer AttrSpec (AttrMap -> s)
- > instance Applicative SynSpec
- > project :: Typeable a => Attr a -> SynSpec a
-
-For inherited attributes, the following interface is enough.
-
- > type InhSpec i = Writer AttrSpec (i -> AttrMap)
- > embed :: Attr a -> (i -> a) -> InhSpec i
- > (#) :: InhSpec i -> InhSpec i -> InhSpec i
-
-example:
-
- > data I = I { a :: Int, b :: Bool }
- > data S = S { c :: String, d :: Float }
- >
- > count :: Attr Int
- > flag :: Attr Bool
- > output :: Attr String
- > speed :: Attr Float
- >
- > specI = embed count a # embed flag b :: InhSpec I
- > specS = S <$> project output <*> project speed :: SynSpec S
-
-
-Specifying that the tree corresponds to the grammar and how
-it is mapped is very hard.  In the general case we use a GADT
-to capture the context free grammar.  We must check that the
-tree type is a subset of the context free grammar.  That for
-each constructor of the tree there is a corresponding
-production and that the children match.
-
-In the simple case when there is only one non-terminal, we
-need to tell which production corresponds to which
-constructor, and at the same time which of the children of the constructor are:
-
- > deconstruct :: t -> ([t], Production)
-
-We need to collect the list of all possible productions in
-the range of `deconstruct'.  But we cannot evaluate
-deconstruct. (we would need to evaluate it for an infinite
-number of input in order to collect the range).
-Can we use the type system to constrain the range of deconstruct?
-
-If we accept to build deconstruct by gluing partial pieces,
-putting the responsability of termination in the users hand,
-then we can proceed as follows:
-
- > type Constr t = t -> Maybe (Production, [t])
- > type TreeSpec t = Writer [Production] [Constr t]
- > instance Monoid TreeSpec
- > constr = Production -> (t -> Maybe [t]) -> TreeSpec t
- > glue :: [Constr t] -> t -> Tree
-
-Example
-
- > node :: Production
- > leaf :: Production
- 
- > nodeC (Node l r) = Just ([l,r])
- > nodeC _ = Nothing
- 
- > leafC (Leaf x) = Just []
- > leafC _ = Nothing
- 
- > treeC :: Constr t
- > treeC = constr node nodeC <|> constr leaf leafC
-
-Now we didn't consider terminals. Terminals are embedded as
-attributes of Val nodes in the tree. This again requires us
-to check that the attributes are compatible with the
-rules. We reuse the InhSpec type that specifies functions of
-type `i -> AttrMap`.
-
- > type Constr t = t -> Maybe (Production, [t], AttrMap)
- > type TreeSpec t = Writer ([Production],[Attribute]) [Constr t]
- > instance Monoid TreeSpec
- > constr = Production -> InhSpec i -> (t -> Maybe ([t], i)) -> TreeSpec t
- > glue :: [Constr t] -> t -> Tree
-
-Now in order to constrain the number of children for each
-production, we can use a vector type, so the combination of
-static check and runtime typechecking ensures that we will
-always be constructing valid production.
-
- > constr = Production -> Nat n -> InhSpec i -> (t -> Maybe (Vec n t, i)) -> TreeSpec t
-
-The function (nat :: Nat n -> Int) allows us to check that
-the vector has the same number of elements as the
-production's children.
-
-The last generalisation that we want is map families of
-recursive types to a context free grammar. This involves
-using GADTs. Now to capture the list of children, we not only
-need their number, but their type. Thus we use a heterogenous
-list indexed by the type level list of the element's types.
-
- > data HList t ks where
- >   HNil :: HList '[]
- >   HCons :: t k -> HList t ks -> HList (k ': ks)
-
-We must capture what a type level list is, in order to compute its length.
-
- > data TList ks where
- >   TNil :: TList '[]
- >   TCons :: Proxy k -> TList ks -> TList (k ': ks)
-
- > constr = Production -> TList ks -> InhSpec i -> (t k -> Maybe (HList t ks, i)) -> TreeSpec t
-
 
 > {-# LANGUAGE
 >       TypeOperators
@@ -306,7 +160,8 @@ ProdName anyways.
 
 > data Production = Production
 >   { prod_name :: ProdName
->   , prod_orphans :: [Orphan] }
+>   , prod_orphans :: [Orphan]
+>   , prod_terminals :: Set (AttrOf T) }
 >   deriving (Eq, Ord)
 
 > data Child = Child
@@ -317,6 +172,18 @@ ProdName anyways.
 > type Orphan = (Name, NonTerminal)
 
 > type Children = [Child]
+
+Abstract so that the user doesn't manipulate Attribute.  (We
+must ensure the invariant that all attributes are of the T
+kind)
+
+> newtype Terminals = Terminals {terms_set :: Set (AttrOf T)}
+
+> nilT :: Terminals
+> nilT = Terminals Set.empty
+> consT :: Typeable a => Attr T a -> Terminals -> Terminals
+> consT t (Terminals ts) =
+>   Terminals $ Set.insert (AttrOf t) ts
 
 > prod_child :: Production -> Orphan -> Child
 > prod_child p (c,n) = Child (p,c) n
@@ -346,8 +213,8 @@ production, then the production that we create will have
 distinct children (new ones with the same short name but
 different fully qualified name).
 
-> production :: NonTerminal -> Name -> Children -> Production
-> production n p cs = Production (n,p) (orphans cs)
+> production :: NonTerminal -> Name -> Children -> Terminals -> Production
+> production n p cs (Terminals ts) = Production (n,p) (orphans cs) ts
 
 > child :: Production -> Name -> NonTerminal -> Child
 > child p c n = Child (p, c) n
@@ -360,45 +227,82 @@ different fully qualified name).
 > infix 1 ::=
 > infixr 2 :|
 > infix 3 :@
-> infix 4 :::
+> infix 1 :::
+> infix 4 :&
 
-> type GrammarSpec = [NTSpec Name Name ChildSpec]
+> type GrammarSpec = [NTSpec Name Name ChildTermSpec]
 > data NTSpec n p c =
->   n ::= ProdSpecs n p c
+>   n ::= ProdSpecs p c
 
-> data ProdSpecs n p c
->   = p :@ [c]
->   | ProdSpecs n p c :| ProdSpecs n p c
+> data ProdSpecs p c
+>   = p :@ c
+>   | ProdSpecs p c :| ProdSpecs p c
 
-> data ChildSpec =
->   Name ::: NonTerminal
+> data ChildSpec = Name ::: NonTerminal
+
+> type ChildrenSpec = [ChildSpec]
+
+> data ChildTermSpec = ChildrenSpec :& Terminals
+
 
 Building each element of the grammar. Typically we bind the result
 in a pattern binding that has the same shape as the specification.
 See Examples.lhs.
 
 > grammar ::
->   GrammarSpec -> [NTSpec NonTerminal Production Child]
-> grammar = map ntspec
+>   GrammarSpec -> [NTSpec NonTerminal Production Children]
+> grammar = map nt_spec
 >   where
->     ntspec (name ::= prods) =
->       let nt = non_terminal name in (nt ::= prodspec nt prods)
->     prodspec nt (name :@ children) =
->       let p = production nt name cs
->           cs = map (childspec p) children
->       in p :@ cs
->     prodspec nt (p :| p') =
->       prodspec nt p :| prodspec nt p'
->     childspec prod (name ::: nt) =
+>     nt_spec (name ::= prods) =
+>       let nt = non_terminal name in (nt ::= prod_spec nt prods)
+
+private
+
+> prod_spec nt (name :@ children :& ts) = prod :@ cs
+>   where
+>     prod = production nt name cs ts
+>     cs = map child_spec children
+>     child_spec (name ::: nt) =
 >       child prod name nt
+
+> prod_spec nt (p :| p') =
+>   prod_spec nt p :| prod_spec nt p'
+
+production can be used to extend a non-terminal
+
+> productions ::
+>   NTSpec NonTerminal Name ChildTermSpec ->
+>   ProdSpecs Production Children
+> productions (nt ::= prods) = prod_spec nt prods
+
 
 * Grammar
 
-A grammar can be given by a set of production.
-This fully specifies a grammar, and the representation is unique.
-(up to set equality)
+A grammar can be given by a set of production.  This fully
+specifies a grammar, and the representation is unique.  (up
+to set equality).
+
+Note: should we make this a new type?
+It might be nice for type inference, and error messages.
+It doesn't need to be abstract.
 
 > type Grammar = Set Production
+
+Some values are not valid grammars: we must check that the
+orphans and terminals have unique names for each production.
+
+> valid_grammar :: Grammar -> Bool
+> valid_grammar = allSet valid_production
+
+Children of a production must have unique names.
+Note: if two terminals have the same name but different types
+then they are different: only their names are overloaded.
+
+TODO: explicit error (which ones are duplicated?)
+
+> valid_production :: Production -> Bool
+> valid_production p = nub cs == cs
+>   where cs = map fst $ prod_orphans p
 
 > gram_children :: Grammar -> Set Child
 > gram_children gram =
@@ -452,6 +356,9 @@ heterogenous equality on kinds
 > attr :: Typeable a => Name -> Kind m -> p a -> Attr m a
 > attr n k _ = Attr n k
 
+> data AttrOf k where
+>   AttrOf :: Typeable a => Attr k a -> AttrOf k
+
 > data Attribute where
 >   Attribute :: Typeable a => Attr k a -> Attribute
 
@@ -474,11 +381,21 @@ attributes by their types.
 > lexicographic EQ c = c
 > lexicographic c _ = c
 
-> eqAttr :: (Typeable a, Typeable a') => Attr k a -> Attr k' a' -> Bool
-> eqAttr x y = Attribute x == Attribute y
+> eqAttr :: (Typeable a, Typeable a') =>
+>   Attr k a -> Attr k' a' -> Bool
+> eqAttr x y =
+>   Attribute x == Attribute y
 
-> compareAttr :: (Typeable a, Typeable a') => Attr k a -> Attr k' a' -> Ordering
-> compareAttr x y = Attribute x `compare` Attribute y
+> compareAttr :: (Typeable a, Typeable a') =>
+>   Attr k a -> Attr k' a' -> Ordering
+> compareAttr x y =
+>   Attribute x `compare` Attribute y
+
+> instance Eq (AttrOf k) where
+>   x == y  = compare x y == EQ
+> instance Ord (AttrOf k) where
+>   AttrOf x `compare` AttrOf y =
+>     x `compareAttr` y
 
 > instance Typeable a => Show (Attr k a) where
 >   show = attr_name
@@ -651,11 +568,11 @@ Errors in a rule.
      which doesn't list this child.
 
 > data Error
->   = Error_Child Child Production
->   | Error_Missing_Rules Missing
+>   = Error_Child Child Production -- raised when building rules
+>   | Error_Missing_Rules Missing  -- raised when combining a grammar with rules.
 >   deriving Show
 
-*  Contexts, Axioms and Hypothesis
+*  Contexts, Constraints
 
 While building attribution rules, we build a rule of
 inference in parallel that we call `Context` here. The
@@ -665,7 +582,7 @@ conjunction of premises entails the conjunction of
 conclusions. The premises are captured by the datatype
 `Require` and the conclusion by the datatype `Ensure`.
 
-When the rule set is deamed complete, we can check its
+When the rule set is deemed complete, we can check its
 context with respect to a grammar.
 
 Note that the use of the kind and the phantom type on
@@ -678,76 +595,54 @@ production.
 Therefore we only need to keep track of attributes that are
 used (required) and attributes that are defined (ensured).
 
-Conclusions
-
-> data Ensure k where
->   Ensure_Child :: Typeable a => Child -> Attr I a -> Ensure I
->   Ensure_Parent :: Typeable a => Production -> Attr S a -> Ensure S
-
-> ensured_child :: Ensure I -> Child
-> ensured_child (Ensure_Child c a) = c
-
-> ensured_prod :: Ensure S -> Production
-> ensured_prod (Ensure_Parent p a) = p
-
-> instance Eq (Constraint k) where
->   r == r'  =  compare r r' == EQ
-
-> instance Ord (Ensure k) where
->   compare (Ensure_Child c a) (Ensure_Child c' a')
->     = lexicographic (compare c c') (compareAttr a a')
->   compare (Ensure_Parent p a) (Ensure_Parent p' a')
->     = lexicographic (compare p p') (compareAttr a a')
->   compare (Ensure_Child _ _) _ = LT
->   compare _ _ = GT
-
-> instance Show (Ensure k) where
->   showsPrec _ (Ensure_Child c a) = shows c . ('!':) . shows a
->   showsPrec _ (Ensure_Parent p a) = str "par ("  . shows p . str "," . shows a . str ")"
-
 Constraints
 
-> data Constraint k where
->   Constraint :: Typeable a => NonTerminal -> Attr k a -> Constraint k
+> data Constraint k t where
+>   Constraint :: Typeable a =>
+>     Attr k a -> t -> Constraint k t
 
-Premises
+> constr_obj :: Constraint k t -> t
+> constr_obj (Constraint a x) = x
+> constr_attr :: Constraint k t -> AttrOf k
+> constr_attr (Constraint a x) = AttrOf a
 
-> type Require = Constraint
+> instance Eq t => Eq (Constraint k t) where
+>   Constraint a x == Constraint b y =
+>     a `eqAttr` b && x == y
 
-> instance Eq (Ensure k) where
->   e == e'  =  compare e e' == EQ
+> instance Ord t => Ord (Constraint k t) where
+>   compare (Constraint a x) (Constraint b y)
+>     = lexicographic (compareAttr a b) (compare x y)
+> instance Show t => Show (Constraint k t) where
+>   showsPrec _ (Constraint a x) = shows a . str "#" . shows x
 
-> instance Ord (Constraint k) where
->   compare (Constraint n a) (Constraint n' a')
->     = lexicographic (compare n n') (compareAttr a a')
-
-> instance Show (Constraint k) where
->   showsPrec _ (Constraint n a) = shows n . str "." . shows a
-
-
-Each conclusion is participating in proving one premise.
-
-> ensure_constraint :: Ensure k -> Constraint k
-> ensure_constraint (Ensure_Child c a) =
->   Constraint (child_nt c) a
-> ensure_constraint (Ensure_Parent p a) =
->   Constraint (prod_nt p) a
+> instance Functor (Constraint k) where
+>   fmap f (Constraint a x) =
+>     Constraint a (f x)
 
 Contexts are modelled with sets of premises and
 conclusions. They form a monoid, therefore the Writer monad
 uses the mappend function to update the constraints. Note
 that contexts are cannot be more simplified.
+Each conclusion is participating in proving one premise.
 
-The terminals premises do not have a corresponding
-conclusions those constraints will be used when checking that
-the input tree is well-formed.
+Ensure_I and Ensure_S are generated by rules.
+Ensure_T are generated by the grammar definition.
+
+> type Ensure_I = Constraint I Child
+> type Ensure_S = Constraint S Production
+> type Ensure_T = Constraint T Production
+ 
+> type Require_I = Constraint I NonTerminal
+> type Require_S = Constraint S NonTerminal
+> type Require_T = Constraint T Production
 
 > data Context = Ctx
->   { ensure_children   :: Set (Ensure I)
->   , ensure_parents    :: Set (Ensure S)
->   , require_synthesized  :: Set (Require S)
->   , require_inherited   :: Set (Require I)
->   , require_terminals :: Set (Require T)
+>   { ensure_I  :: Set Ensure_I
+>   , ensure_S  :: Set Ensure_S
+>   , require_I :: Set Require_I
+>   , require_S :: Set Require_S
+>   , require_T :: Set Require_T
 >   }
 >   deriving Show
 
@@ -766,19 +661,21 @@ the input tree is well-formed.
 >   mempty = emptyCtx
 >   mappend = mergeCtx
 
-`nullCtx` is true iff the context is empty.
+Extract all the terminals axioms from a grammar.
 
-> nullCtx (Ctx ec ep rc rp rt) =
->   Set.null ec
->   && Set.null ep
->   && Set.null rc
->   && Set.null rp
->   && Set.null rt
+> ensure_T :: Grammar -> Set Ensure_T
+> ensure_T = unionSets prod_ensure_T
+
+> prod_ensure_T :: Production -> Set Ensure_T
+> prod_ensure_T p = Set.map ensure $ prod_terminals p
+>   where
+>     ensure (AttrOf a) = Constraint a p
 
 There is no invalid context, and no redundent
 constraints. The only thing we can do is to check whether a
-context is complete: i.e. all `require` constraints are met by
-matching `ensure` constraints.
+context is complete: i.e. all `require` constraints are met
+by matching `ensure` constraints, and all terminals are
+defined in the grammar.
 
 > complete ::
 >   Grammar -> Context -> Bool
@@ -788,49 +685,48 @@ Missing rules
 
 The missing `ensure` constraints for the rules to be complete.
 
-> type Missing = (Set (Ensure I), Set (Ensure S))
-> nullMissing (x,y) = Set.null x && Set.null y
+> type Missing = (Set Ensure_I, Set Ensure_S, Set Ensure_T)
+> nullMissing (x,y,z) = Set.null x && Set.null y && Set.null z
 
 > missing ::
 >   Grammar -> Context -> Missing
 > missing g c =
->   ( missingK I g (ensure_children c) (require_inherited c)
->   , missingK S g (ensure_parents c) (require_synthesized c))
+>   ( unionSets (missing_I (gram_children g) (ensure_I c)) (require_I c)
+>   , unionSets (missing_S g (ensure_S c)) (require_S c)
+>   , missing_T (ensure_T g) (require_T c))
 
-> missingK ::
->   Kind k -> Grammar -> Set (Ensure k) -> Set (Require k) -> Set (Ensure k)
-> missingK = unionSets `res3` missing1
-
-> missing1 ::
->   Kind k -> Grammar -> Set (Ensure k) -> Require k -> Set (Ensure k)
-> missing1 S =
->   missing1_with prod_nt ensure_parent id S
->   where ensure_parent (Constraint _ a) p = (Ensure_Parent p a)
-> missing1 I =
->   missing1_with child_nt ensure_child gram_children I
->   where ensure_child (Constraint _ a) c = (Ensure_Child c a)
-> missing1 T = cst3 Set.empty
-
-> missing1_with :: (Ord a) =>
->   (a -> NonTerminal) ->
->   (Require k -> a -> Ensure k) ->
->   (Grammar -> Set a) ->
->   Kind k -> Grammar -> Set (Ensure k) -> Require k -> Set (Ensure k)
-> missing1_with elem_nt elem_ensure gram_elems k gram ensure
->   r@(Constraint n a) =
->     Set.difference matching ensured
+> missing_I :: Set Child -> Set Ensure_I -> Require_I -> Set Ensure_I
+> missing_I children ensure r@(Constraint a n) =
+>   Set.difference match_children match_ensure
 >   where
->     matching =
->       Set.map (elem_ensure r)
->        $ Set.filter (\x -> elem_nt x == n) (gram_elems gram)
->     ensured =
->       Set.filter (\e -> ensure_constraint e == r) ensure
+>     match_children =
+>       Set.map (<$ r)
+>        $ Set.filter ((== n) . child_nt) children
+>     match_ensure =
+>       Set.filter ((== r) . fmap child_nt) ensure
 
+> missing_S :: Set Production -> Set Ensure_S -> Require_S -> Set Ensure_S
+> missing_S prods ensure r@(Constraint a n) =
+>   Set.difference match_prods match_ensure
+>   where
+>     match_prods =
+>       Set.map (<$ r)
+>        $ Set.filter ((== n) . prod_nt) prods
+>     match_ensure =
+>       Set.filter ((== r) . fmap prod_nt) ensure
+
+This case is different from S, and I since the terminal
+attributes are not associated with non-terminals but with
+productions.
+
+> missing_T :: Set Ensure_T -> Set Require_T -> Set Ensure_T
+> missing_T = flip Set.difference
 
 The primitive ways to update the context are through the
 require_* and ensure_* functions given below.
 
-> tell_parent f = current_production >>= tell . f
+> tell_parent f =
+>   current_production >>= tell . f
 
 Generate errors if the child is not valid in the current production.
 
@@ -839,37 +735,37 @@ Generate errors if the child is not valid in the current production.
 >   unless (c `elem` prod_children p)
 >     $ throwError (Error_Child c p)
 
+> cstr :: Typeable a =>
+>   Attr k a -> t -> Set (Constraint k t)
+> cstr a x =
+>   Set.singleton (Constraint a x)
+
 > require_child ::
 >   Typeable a => Child -> Attr S a -> A ()
 > require_child c a = do
 >   assert_child c
->   tell $ emptyCtx { require_synthesized =
->                       Set.singleton (Constraint (child_nt c) a) }
+>   tell $ emptyCtx { require_S = cstr a (child_nt c) }
 
 > ensure_child ::
 >   Typeable a => Child -> Attr I a -> A ()
 > ensure_child c a = do
 >   assert_child c
->   tell $ emptyCtx { ensure_children =
->                       Set.singleton (Ensure_Child c a) }
+>   tell $ emptyCtx { ensure_I = cstr a c }
 
 > require_parent ::
 >   Typeable a => Attr I a -> A ()
 > require_parent a = tell_parent $ \p ->
->   emptyCtx { require_inherited =
->                 Set.singleton (Constraint (prod_nt p) a) }
+>   emptyCtx { require_I = cstr a (prod_nt p) }
 
 > ensure_parent ::
 >   Typeable a => Attr S a -> A ()
 > ensure_parent a = tell_parent $ \p ->
->   emptyCtx { ensure_parents =
->                 Set.singleton (Ensure_Parent p a) }
+>   emptyCtx { ensure_S = cstr a p }
 
 > require_terminal ::
 >   Typeable a => Attr T a -> A ()
 > require_terminal a = tell_parent $ \p ->
->   emptyCtx { require_terminals =
->                 Set.singleton (Constraint (prod_nt p) a) }
+>   emptyCtx { require_T = cstr a p }
 
 The primitives to build aspects project attributes from either
 the parent, a child of the production or the terminal child.
@@ -1062,3 +958,151 @@ By hypothesis, we know that the attribute will be defined for them.
 > unsafe_run = sem_tree . sem_rule
 
  > run :: Rule -> Either Error (InputTree -> SemTree)
+
+
+* Could we run the AG in a typed way?
+
+Rather than run the AG on the general tree type.
+
+ > type Partial a = Either Error a -- success or failure monad
+ 
+ > check :: spec t i s -> Rule -> Partial (AG t i s)
+ > run :: AG t i s -> t -> i -> s
+
+The spec should say
+- The grammar (set of productions)
+- The set of attributes (packaged with their types) and their domain (set of non-terminals)
+
+  A finite map from attributes to non-terminals will contain
+  the necessary information (since we can obtain the set of the
+  keys from the map)
+
+Thus:
+
+ > type Grammar = Set Production
+ > type Domain = Attribute :-> Set NonTerminal
+ > type AGSpec = (Grammar, Domain)
+
+In the typed version, in addition we must build (total) conversions between
+- t and the tree type,
+- i,s and the AttrMap type.
+
+To specify i and s, we must keep track of the attributes that
+they will be using and build conversion functions
+(i -> AttrMap) and (AttrMap -> s).
+
+`AttrSpec' is a list of attributes with existential
+quantification over the attribute type.
+
+ > type AttrSpec = [Attribute]
+
+For the synthesized attributes the following interface is enough.
+(AttrSpec, InhSpec, SynSpec, Attrs, Attribute are all abstract types)
+
+ > type SynSpec s = Writer AttrSpec (AttrMap -> s)
+ > instance Applicative SynSpec
+ > project :: Typeable a => Attr a -> SynSpec a
+
+For inherited attributes, the following interface is enough.
+
+ > type InhSpec i = Writer AttrSpec (i -> AttrMap)
+ > embed :: Attr a -> (i -> a) -> InhSpec i
+ > (#) :: InhSpec i -> InhSpec i -> InhSpec i
+
+example:
+
+ > data I = I { a :: Int, b :: Bool }
+ > data S = S { c :: String, d :: Float }
+ >
+ > count :: Attr Int
+ > flag :: Attr Bool
+ > output :: Attr String
+ > speed :: Attr Float
+ >
+ > specI = embed count a # embed flag b :: InhSpec I
+ > specS = S <$> project output <*> project speed :: SynSpec S
+
+
+Specifying that the tree corresponds to the grammar and how
+it is mapped is very hard.  In the general case we use a GADT
+to capture the context free grammar.  We must check that the
+tree type is a subset of the context free grammar.  That for
+each constructor of the tree there is a corresponding
+production and that the children match.
+
+In the simple case when there is only one non-terminal, we
+need to tell which production corresponds to which
+constructor, and at the same time which of the children of the constructor are:
+
+ > deconstruct :: t -> ([t], Production)
+
+We need to collect the list of all possible productions in
+the range of `deconstruct'.  But we cannot evaluate
+deconstruct. (we would need to evaluate it for an infinite
+number of input in order to collect the range).
+Can we use the type system to constrain the range of deconstruct?
+
+If we accept to build deconstruct by gluing partial pieces,
+putting the responsability of termination in the users hand,
+then we can proceed as follows:
+
+ > type Constr t = t -> Maybe (Production, [t])
+ > type TreeSpec t = Writer [Production] [Constr t]
+ > instance Monoid TreeSpec
+ > constr = Production -> (t -> Maybe [t]) -> TreeSpec t
+ > glue :: [Constr t] -> t -> Tree
+
+Example
+
+ > node :: Production
+ > leaf :: Production
+ 
+ > nodeC (Node l r) = Just ([l,r])
+ > nodeC _ = Nothing
+ 
+ > leafC (Leaf x) = Just []
+ > leafC _ = Nothing
+ 
+ > treeC :: Constr t
+ > treeC = constr node nodeC <|> constr leaf leafC
+
+Now we didn't consider terminals. Terminals are embedded as
+attributes of Val nodes in the tree. This again requires us
+to check that the attributes are compatible with the
+rules. We reuse the InhSpec type that specifies functions of
+type `i -> AttrMap`.
+
+ > type Constr t = t -> Maybe (Production, [t], AttrMap)
+ > type TreeSpec t = Writer ([Production],[Attribute]) [Constr t]
+ > instance Monoid TreeSpec
+ > constr = Production -> InhSpec i -> (t -> Maybe ([t], i)) -> TreeSpec t
+ > glue :: [Constr t] -> t -> Tree
+
+Now in order to constrain the number of children for each
+production, we can use a vector type, so the combination of
+static check and runtime typechecking ensures that we will
+always be constructing valid production.
+
+ > constr = Production -> Nat n -> InhSpec i -> (t -> Maybe (Vec n t, i)) -> TreeSpec t
+
+The function (nat :: Nat n -> Int) allows us to check that
+the vector has the same number of elements as the
+production's children.
+
+The last generalisation that we want is map families of
+recursive types to a context free grammar. This involves
+using GADTs. Now to capture the list of children, we not only
+need their number, but their type. Thus we use a heterogenous
+list indexed by the type level list of the element's types.
+
+ > data HList t ks where
+ >   HNil :: HList '[]
+ >   HCons :: t k -> HList t ks -> HList (k ': ks)
+
+We must capture what a type level list is, in order to compute its length.
+
+ > data TList ks where
+ >   TNil :: TList '[]
+ >   TCons :: Proxy k -> TList ks -> TList (k ': ks)
+
+ > constr = Production -> TList ks -> InhSpec i -> (t k -> Maybe (HList t ks, i)) -> TreeSpec t
