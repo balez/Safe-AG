@@ -1,15 +1,41 @@
-* TODO
-- add locations to errors when building rules
-- checking the tree shape
-- running the attribute grammar
-- (for later) Indexed Tree with phantom variables to reflect the nt, prod, children.
+* Literate Haskell with org-mode
+The documentation part of this literate file is written in
+`org-mode'.  To benefit from the enhanced navigation given by
+this mode, you should do the following to setup emacs.
 
+- install mmm-mode
 
-* IMPORTANT:
-- when using the library primitives, the user should never
-  SEE any `Dynamic', always concrete types.
-- the user should never SEE Attribute, only `Attr k a'
+: (package install 'mmm-mode)
 
+- add to your .emacs:
+
+(mmm-add-classes
+ '((literate-haskell-bird
+    :submode literate-haskell-mode
+    :front "^>"
+    :include-front true
+    :back "^[^>]*$"
+    )
+   ))
+
+Then when loading this file, use `M-x org-mode' followed by
+`M-x mmm-ify-by-class' and enter `literate-haskell-bird'.
+
+You now have both `org-mode' and `literate-haskell-mode'
+together.
+
+** Alternatively, use `occur' to generate a table of content
+
+`M-x occur' creates an interactive buffer in which the lines
+matching a regexp will link to the corresponding line in the
+original buffer.
+
+Use `occur' with regexp `^\*' to see all sections, or `^\* '
+to see level-1 sections only, `^\*\* ' to see level-2
+sections, `^\*\*\* ' for level-3, and so on. The syntax
+`^*\{1,3\} ' can be used as well to see sections of levels 1 to 3.
+
+* Overview
 
 EDSL for attribute grammars in Haskell inspired by De Moor's
 design.  With runtime typechecking. It is the dynamic version
@@ -28,7 +54,7 @@ typechecking: the type of attributes and their kind
 statically. But the completeness of the grammar is checked at
 runtime.
 
-* We want to collect type informations on rules before even
+We want to collect type informations on rules before even
 computing them, so that the whole AG can be typechecked
 before it is being run.  In order to do that, we use a monad,
 that writes constraints and that read the input of the rules
@@ -36,38 +62,67 @@ that writes constraints and that read the input of the rules
 the writer must come before the reader. This means we do not
 have access to the input types.
 
+** TODO
+- errors when building prodDesc
+- add locations to errors when building rules
+- checking the tree shape
+- running the attribute grammar
+- (for later) Indexed Tree with phantom variables to reflect the nt, prod, children.
+- remove GADTs option unless necessary
+** Discussion
+*** grammar definition / datatype description
+It seems we're doing twice the same thing.
+
+* Header
+** GHC Extensions
+
 > {-# LANGUAGE
 >       TypeOperators
 >     , GADTs
+>     , ExistentialQuantification
 >     , DeriveDataTypeable
 >     , GeneralizedNewtypeDeriving
 >     , StandaloneDeriving
 >  #-}
 
+** Module Exports
+
+- when using the library primitives, the user should never
+  SEE any `Dynamic', always concrete types.
+- the user should never SEE Attribute, only `Attr k a'
+
 > module AG where
+
+** Module Imports
+
+> import Prelude hiding (all, sequence)
 > import Control.Applicative
-> import Control.Monad.Except
-> import Control.Monad.Writer.Strict
-> import Control.Monad.Reader
+> import Control.Monad.Except hiding (sequence)
+> import Control.Monad.Writer.Strict hiding (sequence)
+> import Control.Monad.Reader hiding (sequence)
 > import Data.Dynamic
+> import Data.Function (on)
 > import qualified Data.Set as Set
 > import Data.Set (Set)
 > import Data.List (nub)
 > import qualified Data.Map as Map
 > import Data.Map (Map)
 > import Data.Traversable
+> import Data.Foldable (foldMap, all)
 > import Unknown
+
 
 http://hackage.haskell.org/package/base-4.9.0.0/docs/GHC-Stack.html
 
-General definitions
+* General definitions
+** Function composition
 
 > cst2 r x y = r
 > cst3 r x y z = r
 > res2 g f x y = g (f x y)
 > res3 g f x y z = g (f x y z)
 
-Maybe, Either
+** Maybe, Either
 
 > fromJust (Just x) = x
 > filterJust xs = [ x | Just x <- xs ]
@@ -75,15 +130,14 @@ Maybe, Either
 > justLeft _ = Nothing
 
 
-String operations (over ShowS)
+** String operations (over ShowS)
 
 > str s = (s ++)
 
-Map operations
+** Set and Map operations
 
 > infixr 1 :->
 > type (:->) = Map
-
 
 > infixr 2 |->, |-
 > (|->) = Map.singleton
@@ -114,15 +168,10 @@ then it's not an applicative instance.
 
 Set operations
 
-> foldSet :: Monoid b =>
->   (a -> b) -> Set a -> b
-> foldSet p = Set.foldr (\x b -> p x `mappend` b) mempty
-
-> allSet :: (a -> Bool) -> Set a -> Bool
-> allSet p = getAll . foldSet (All . p)
-
 > unionSets :: Ord b => (a -> Set b) -> Set a -> Set b
-> unionSets = foldSet
+> unionSets = foldMap
+
+* Context free grammar
 
 An attribute grammar has two elements: a context free grammar
 describing a language, or equivalently, the type of its parse
@@ -130,6 +179,7 @@ tree.  And semantic rules, that define the value of
 attributes for each non-terminal of the grammar, (each node
 of the tree).
 
+** Tree
 We start by defining a general tree type. The tree is parameterised with
 node labels, which are simply the production in the case of the input tree,
 but can also be paired with attributes in the case of a decorated tree.
@@ -141,8 +191,7 @@ The `AttrMap' field introduces the non-terminal data.
 > type DecoratedTree = Tree (Production, AttrMap)
 
 
-A decorated r
-where the `Val' constructor contains the terminal data. and
+** Grammar basic blocks
 
 > type Name = String
 > type NonTerminalName = Name
@@ -213,8 +262,10 @@ production, then the production that we create will have
 distinct children (new ones with the same short name but
 different fully qualified name).
 
-> production :: NonTerminal -> Name -> Children -> Terminals -> Production
-> production n p cs (Terminals ts) = Production (n,p) (orphans cs) ts
+> production ::
+>   NonTerminal -> Name -> Children -> Terminals -> Production
+> production n p cs (Terminals ts) =
+>   Production (n,p) (orphans cs) ts
 
 > child :: Production -> Name -> NonTerminal -> Child
 > child p c n = Child (p, c) n
@@ -222,7 +273,8 @@ different fully qualified name).
 > prod_nt = fst . prod_name
 > child_prod = fst . child_name
 
-* DSL for creating the grammar
+** DSL for creating the grammar
+*** Datatypes for the DSL
 
 > infix 1 ::=
 > infixr 2 :|
@@ -244,6 +296,7 @@ different fully qualified name).
 
 > data ChildTermSpec = ChildrenSpec :& Terminals
 
+*** Semantics: building a grammar
 
 Building each element of the grammar. Typically we bind the result
 in a pattern binding that has the same shape as the specification.
@@ -275,8 +328,7 @@ production can be used to extend a non-terminal
 >   ProdSpecs Production Children
 > productions (nt ::= prods) = prod_spec nt prods
 
-
-* Grammar
+** Grammar
 
 A grammar can be given by a set of production.  This fully
 specifies a grammar, and the representation is unique.  (up
@@ -292,7 +344,7 @@ Some values are not valid grammars: we must check that the
 orphans and terminals have unique names for each production.
 
 > valid_grammar :: Grammar -> Bool
-> valid_grammar = allSet valid_production
+> valid_grammar = all valid_production
 
 Children of a production must have unique names.
 Note: if two terminals have the same name but different types
@@ -304,6 +356,12 @@ TODO: explicit error (which ones are duplicated?)
 > valid_production p = nub cs == cs
 >   where cs = map fst $ prod_orphans p
 
+Check whether the given children belong to a production.
+
+> check_prod_children :: Production -> Children -> Bool
+> check_prod_children p cs =
+>   ((==) `on` Set.fromList) (prod_children p) cs
+
 > gram_children :: Grammar -> Set Child
 > gram_children gram =
 >   Set.foldr
@@ -311,7 +369,9 @@ TODO: explicit error (which ones are duplicated?)
 >     Set.empty
 >     (Set.map prod_children gram)
 
-Attribute kinds: I, S, T
+** Attributes
+
+*** Attribute kinds: I, S, T
 
 > data I -- inherited
 > data S -- synthesized
@@ -331,7 +391,7 @@ Attribute kinds: I, S, T
 >   showsPrec _ S = ('S' :)
 >   showsPrec _ T = ('T' :)
 
-heterogenous equality on kinds
+**** Eq, Ord
 
 > eqKind :: Kind j -> Kind k -> Bool
 > eqKind I I = True
@@ -349,6 +409,8 @@ heterogenous equality on kinds
 > dualOrdering GT = LT
 > dualOrdering EQ = EQ
 
+*** Attr, AttrOf, Attribute
+
 > data Attr k a = Attr
 >   { attr_name :: Name
 >   , attr_kind :: Kind k}
@@ -362,6 +424,7 @@ heterogenous equality on kinds
 > data Attribute where
 >   Attribute :: Typeable a => Attr k a -> Attribute
 
+**** Eq, Ord
 WARNING: what if two attributes with the same name and
 different types are used? If we consider them equal then the
 value associated to the name could change type.  If we
@@ -403,6 +466,7 @@ attributes by their types.
 > instance Show Attribute where
 >   show (Attribute x) = show x
 
+*** Attributions
 An attribution is a finite map from attribute name to values.
 Note: the use of Dynamics prevents us from having polymorphic
 attributes.
@@ -419,7 +483,7 @@ attributes.
 > (|=>) :: Typeable a => Attr k a -> a -> AttrMap
 > a |=> x = Attribute a |-> toDyn x
 
-Parent and children and terminal attributions.
+**** Parent, children and terminal attributions.
 
 > type TerminalAttrs = AttrMap
 > type ParentAttrs = AttrMap
@@ -430,10 +494,14 @@ Parent and children and terminal attributions.
 > mergeChildrenAttrs x y =
 >   Map.unionWith mergeAttrs x y
 
-A Family of attribution: for the parent of the node and for
-the children.  (Not all children need to be given an
-attribute). Note that the terminal attributes are only used
-as input. In the output, the terminal map will always be empty.
+**** Family of attribution
+
+Attributions for the parent of the node, for the children and
+the terminals.  (Not all children need to be given an
+attribute).  Families are used as input and output of rules,
+however the terminal attributes are only used
+as input. In the output, the terminal map will always be
+empty.
 
 > data Family = Family
 >   { parentAttrs :: ParentAttrs
@@ -451,19 +519,14 @@ as input. In the output, the terminal map will always be empty.
 >          (mergeChildrenAttrs xs ys)
 >          (mergeAttrs a b)
 
-The domain of an attribute states for which non-terminals it
-should be defined.
+* Rules
+An attribute grammar is given by a context free grammars and
+attribution rules.
 
-> type Domain = Attribute :-> Set NonTerminal
+> type AG = (Grammar, Rule)
 
-A domain together with a context free grammar, constitute the
-signature of an attribute grammar: we should be able to tell
-if a given implementation is compatible or not with that signature.
-
-> type AGSig = (Grammar, Domain)
-
-In order to check that an AG implementation is compatible with a signature,
-we must collect information about the rules:
+In order to check that the rules are compatible with a
+grammar, we must collect information about the rules:
 
 Which attributes are used and with which type from the
 parent, the children, or the terminal data..
@@ -572,7 +635,7 @@ Errors in a rule.
 >   | Error_Missing_Rules Missing  -- raised when combining a grammar with rules.
 >   deriving Show
 
-*  Contexts, Constraints
+* Contexts, Constraints
 
 While building attribution rules, we build a rule of
 inference in parallel that we call `Context` here. The
@@ -632,7 +695,7 @@ Ensure_T are generated by the grammar definition.
 > type Ensure_I = Constraint I Child
 > type Ensure_S = Constraint S Production
 > type Ensure_T = Constraint T Production
- 
+
 > type Require_I = Constraint I NonTerminal
 > type Require_S = Constraint S NonTerminal
 > type Require_T = Constraint T Production
@@ -934,6 +997,7 @@ By hypothesis, we know that the attribute will be defined for them.
 >   (reduce . filterJust) <$> traverse (?a) cs
 
 * Running the grammar
+** Semantics
 
 > type SemTree = AttrMap -> AttrMap
 
@@ -959,31 +1023,16 @@ By hypothesis, we know that the attribute will be defined for them.
 
  > run :: Rule -> Either Error (InputTree -> SemTree)
 
-
-* Could we run the AG in a typed way?
+** Could we run the AG in a typed way?
 
 Rather than run the AG on the general tree type.
 
  > type Partial a = Either Error a -- success or failure monad
- 
+
  > check :: spec t i s -> Rule -> Partial (AG t i s)
  > run :: AG t i s -> t -> i -> s
 
-The spec should say
-- The grammar (set of productions)
-- The set of attributes (packaged with their types) and their domain (set of non-terminals)
-
-  A finite map from attributes to non-terminals will contain
-  the necessary information (since we can obtain the set of the
-  keys from the map)
-
-Thus:
-
- > type Grammar = Set Production
- > type Domain = Attribute :-> Set NonTerminal
- > type AGSpec = (Grammar, Domain)
-
-In the typed version, in addition we must build (total) conversions between
+we must build (total) conversions between
 - t and the tree type,
 - i,s and the AttrMap type.
 
@@ -994,34 +1043,43 @@ they will be using and build conversion functions
 `AttrSpec' is a list of attributes with existential
 quantification over the attribute type.
 
- > type AttrSpec = [Attribute]
+  #+BEGIN_SRC haskell
+type AttrSpec = [Attribute]
+  #+END_SRC
+
 
 For the synthesized attributes the following interface is enough.
 (AttrSpec, InhSpec, SynSpec, Attrs, Attribute are all abstract types)
 
- > type SynSpec s = Writer AttrSpec (AttrMap -> s)
- > instance Applicative SynSpec
- > project :: Typeable a => Attr a -> SynSpec a
+  #+BEGIN_SRC haskell
+type SynSpec s = Writer AttrSpec (AttrMap -> s)
+instance Applicative SynSpec
+project :: Typeable a => Attr a -> SynSpec a
+  #+END_SRC
+
 
 For inherited attributes, the following interface is enough.
 
- > type InhSpec i = Writer AttrSpec (i -> AttrMap)
- > embed :: Attr a -> (i -> a) -> InhSpec i
- > (#) :: InhSpec i -> InhSpec i -> InhSpec i
+  #+BEGIN_SRC haskell
+type InhSpec i = Writer AttrSpec (i -> AttrMap)
+embed :: Attr a -> (i -> a) -> InhSpec i
+(#) :: InhSpec i -> InhSpec i -> InhSpec i
+  #+END_SRC
 
 example:
 
- > data I = I { a :: Int, b :: Bool }
- > data S = S { c :: String, d :: Float }
- >
- > count :: Attr Int
- > flag :: Attr Bool
- > output :: Attr String
- > speed :: Attr Float
- >
- > specI = embed count a # embed flag b :: InhSpec I
- > specS = S <$> project output <*> project speed :: SynSpec S
+  #+BEGIN_SRC haskell
+data I = I { a :: Int, b :: Bool }
+data S = S { c :: String, d :: Float }
 
+count :: Attr Int
+flag :: Attr Bool
+output :: Attr String
+speed :: Attr Float
+
+specI = embed count a # embed flag b :: InhSpec I
+specS = S <$> project output <*> project speed :: SynSpec S
+  #+END_SRC
 
 Specifying that the tree corresponds to the grammar and how
 it is mapped is very hard.  In the general case we use a GADT
@@ -1034,7 +1092,10 @@ In the simple case when there is only one non-terminal, we
 need to tell which production corresponds to which
 constructor, and at the same time which of the children of the constructor are:
 
- > deconstruct :: t -> ([t], Production)
+  #+BEGIN_SRC haskell
+deconstruct :: t -> ([t], Production)
+  #+END_SRC
+
 
 We need to collect the list of all possible productions in
 the range of `deconstruct'.  But we cannot evaluate
@@ -1056,13 +1117,13 @@ Example
 
  > node :: Production
  > leaf :: Production
- 
+
  > nodeC (Node l r) = Just ([l,r])
  > nodeC _ = Nothing
- 
+
  > leafC (Leaf x) = Just []
  > leafC _ = Nothing
- 
+
  > treeC :: Constr t
  > treeC = constr node nodeC <|> constr leaf leafC
 
@@ -1106,3 +1167,133 @@ We must capture what a type level list is, in order to compute its length.
  >   TCons :: Proxy k -> TList ks -> TList (k ': ks)
 
  > constr = Production -> TList ks -> InhSpec i -> (t k -> Maybe (HList t ks, i)) -> TreeSpec t
+
+** Concrete tree specification
+
+In order to run the AG in a type-safe way, we must check that
+a concrete type is compatible the context free grammar. We do
+this verification at runtime, but once and for all.
+
+Since we run the grammar on a general tree type, we must
+convert a concrete type into the general tree. This
+conversion is given by the user. The library offers
+primitives for building the conversion and at the same time
+a context free grammar is computed.
+
+The conversion is given in small blocks: We first ask
+functions computing children of a production, those functions
+are combined in productions, and the productions are combined
+to represent a family of types.
+
+If the conversion is not compatible with the grammar, for
+instance if the children do not correspond to a given
+production, etc.  then a runtime error is thrown.
+The idea is that the programmer should really know what he's doing:
+just like when using `tail'.
+
+*** ChildDesc
+`ChildDesc t' is an abstract type for describing the children
+of type `t'.
+
+> data ChildDesc t = ChildDesc
+>   { childDescChild :: Child
+>   , childDescProj :: t -> Maybe (Child, Dynamic) }
+
+`childDesc' describes a child: the user provides a partial
+function to extract the child. The function typically does
+a pattern matching which is the reason it might fail.
+
+> childDesc :: (Typeable a, Typeable b) =>
+>   Child -> (a -> Maybe b) -> ChildDesc a
+
+> childDesc c p = ChildDesc c p'
+>   where
+>     p' x = (\y -> (c, toDyn y)) <$> p x
+
+*** ProdDesc
+
+`ProdDesc a' describes a constructors of the type `a' (viewed
+as a grammar production).
+
+> data ProdDesc t = ProdDesc
+>   { prodDescProd :: Production
+>   , prodDescMatch :: t -> Maybe (Child :-> Dynamic, AttrMap)
+>   }
+
+`TermDesc a' describes the terminal attributes associated with type `a'.
+
+> data TermDesc a = NoTerms
+> termDescAttrs :: TermDesc a -> AttrMap
+> termDescAttrs = undefined
+
+`prodDesc' associates a production to a constructor.
+
+TODO: Should we rather use a monad to report an error when
+the children are not children of the production?
+also to check the termdesc.
+
+> prodDesc :: (Typeable a) =>
+>   Production -> [ChildDesc a] -> TermDesc a -> ProdDesc a
+> prodDesc p cds ts
+>   | check_prod_children p cs = ProdDesc p projection
+>   | otherwise = err
+>   where
+>     cs = childDescChild <$> cds
+>     projection =
+>       fmap (\cs -> (Map.fromList cs, termDescAttrs ts))
+>                    . sequence . traverse childDescProj cds
+>     err = error "prodDesc: list of children inconsistent with the production"
+
+*** NtDesc
+
+`NtDesc a' associates a non-terminal to the datatype `a'
+
+> data NtDesc t =
+>   NtDesc { ntDescNt :: NonTerminal
+>          , ntDescProds :: Set Production
+>          , ntDescMatch :: t -> Match }
+
+> data Match =
+>   Match { matchProd :: Production
+>         , matchChild :: Child :-> Dynamic
+>         , matchTerminals :: AttrMap }
+
+TODO: Check that the productions are valid (same NT) and all
+distinct.
+
+> ntDesc :: (Typeable a) =>
+>   NonTerminal -> [ProdDesc a] -> NtDesc a
+> ntDesc n ps = NtDesc n ps' (match ps)
+>   where
+>     ps' = Set.fromList (prodDescProd <$> ps)
+>     match [] x = error "ntDesc: match failure"
+>     match (p:ps) x =
+>       maybe (match ps x)
+>             (\(cs, ts) -> Match (prodDescProd p) cs ts)
+>         $ prodDescMatch p x
+>
+>
+
+*** GramDesc
+
+`GramDesc a' associates a grammar to a family of types, where
+`a' is associated to the start symbol of the grammar: the
+root of the tree will have type `a'.
+
+> newtype GramDesc a =
+>   GramDesc (NonTerminal :-> (Dynamic -> Match))
+
+> gramDesc :: (Typeable a) =>
+>   NtDesc a -> GramDesc a
+> gramDesc n = insertNT n (GramDesc Map.empty)
+
+TODO:
+1) check if the non-terminal isn't already in the GramDesc.
+2) check if the children have the right type!!! (using TypeRep)
+
+> insertNT :: (Typeable a) =>
+>   NtDesc a -> GramDesc b -> GramDesc a
+> insertNT n (GramDesc ns) =
+>   GramDesc $ Map.insert (ntDescNt n) match ns
+>  where match x = ntDescMatch n $ fromDyn x err
+>        err = error "insertNT: assert false"

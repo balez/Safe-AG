@@ -1,5 +1,6 @@
 * Header
 ** GHC Extensions
+
 > {-# LANGUAGE
 >       TypeOperators
 >     , GADTs
@@ -29,26 +30,27 @@
 > data BTree = Fork BTree BTree | Leaf Int
 >            deriving (Show, Typeable)
 > data Root = Start BTree
+>            deriving (Show, Typeable)
 
 ** Using the primitives for grammar definition
 *** Non-terminals
- 
+
  > btree = non_terminal "BTree"
  > root = non_terminal "Root"
- 
+
 *** Productions
- 
+
  > start = production btree "Start" [startTree] nilT
  > fork = production btree "Fork" [leftTree, rightTree] nilT
  > leaf = production btree "Leaf" [] (val `consT` nilT)
- 
+
 *** Children
- 
+
  > startTree = child start "startTree" btree
  > leftTree = child fork "leftTree" btree
  > rightTree = child fork "rightTree" btree
- 
- 
+
+
 ** Using the DSL
 
 The same grammar is written as follows:
@@ -70,6 +72,31 @@ The same grammar is written as follows:
 > cons :@ [tailTree] =
 >   productions $
 >     btree ::= "Cons" :@ ["tailTree" ::: btree] :& nilT
+
+** Using GramDesc
+
+  In addition to define independent grammars, we associate
+  them to a concrete type, this will allow
+  us to run AG safely.
+
+> btreeDesc = ntDesc btree
+>   [ prodDesc fork
+>       [ childDesc leftTree leftTreeProj
+>       , childDesc rightTree rightTreeProj]
+>       NoTerms
+>   , prodDesc leaf [] NoTerms]
+>   `insertNT`
+>   (gramDesc $ ntDesc root
+>    [ prodDesc start
+>        [ childDesc startTree startTreeProj ]
+>        NoTerms
+>    ])
+>  where
+>    leftTreeProj (Fork l r) = Just l
+>    leftTreeProj _ = Nothing
+>    rightTreeProj (Fork l r) = Just r
+>    rightTreeProj _ = Nothing
+>    startTreeProj (Start t) = Just t
 
 * Attributes
 
