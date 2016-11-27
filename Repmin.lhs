@@ -1,4 +1,5 @@
-
+* Header
+** GHC Extensions
 > {-# LANGUAGE
 >       TypeOperators
 >     , GADTs
@@ -7,6 +8,8 @@
 >     , ScopedTypeVariables
 >  #-}
 
+** Module Imports
+
 > module Examples where
 > import Data.Dynamic
 > import qualified Data.Set as Set
@@ -14,38 +17,41 @@
 > import Control.Applicative
 > import AG
 
-Type proxies (used in attribute definitions)
+* Type proxies (used in attribute definitions)
 
 > pInt = Proxy :: Proxy Int
 > pBTree = Proxy :: Proxy BTree
 > pList :: Proxy a -> Proxy [a]
 > pList _ = Proxy
 
-Example Repmin
+* Binary tree
 
 > data BTree = Fork BTree BTree | Leaf Int
 >            deriving (Show, Typeable)
 > data Root = Start BTree
 
- Non-terminals
+** Using the primitives for grammar definition
+*** Non-terminals
  
  > btree = non_terminal "BTree"
  > root = non_terminal "Root"
  
- Productions
+*** Productions
  
  > start = production btree "Start" [startTree] nilT
  > fork = production btree "Fork" [leftTree, rightTree] nilT
  > leaf = production btree "Leaf" [] (val `consT` nilT)
  
- Children
+*** Children
  
  > startTree = child start "startTree" btree
  > leftTree = child fork "leftTree" btree
  > rightTree = child fork "rightTree" btree
  
  
-Using the DSL, the same grammar is written as follows:
+** Using the DSL
+
+The same grammar is written as follows:
 
 > [  root  ::= start :@ [startTree]
 >  , btree ::= fork  :@ [leftTree, rightTree]
@@ -54,18 +60,18 @@ Using the DSL, the same grammar is written as follows:
 >     [ "Root"  ::= "Start" :@ ["startTree" ::: btree] :& x
 >     , "BTree" ::= "Fork"  :@ ["leftTree"  ::: btree
 >                              ,"rightTree" ::: btree] :& x
->                :| "Leaf"  :@ [] :& x --val & x
+>                :| "Leaf"  :@ [] :& val & x
 >     ]
 >   where x = nilT
->         --(&) = consT
+>         (&) = consT
 
-A non-terminal can be extended later with new productions:
+*** A non-terminal can be extended later with new productions:
 
 > cons :@ [tailTree] =
 >   productions $
 >     btree ::= "Cons" :@ ["tailTree" ::: btree] :& nilT
 
-Attributes
+* Attributes
 
 > val = attr "val" T pInt -- leaf value (terminal)
 
@@ -73,12 +79,11 @@ Attributes
 > locmin = attr "locmin" S pInt
 > ntree = attr "ntree" S pBTree
 
-Grammar
+* Grammar
 
 > btreeG = Set.fromList [start,fork,leaf]
 
-
-Rules
+* Rules
 
 Remember the priority of merging is left to right, so copy
 must be given last.
@@ -104,7 +109,7 @@ must be given last.
  > missing btreeG repminR
 
 
-List of the leaves
+** List of the leaves
 
 > tailf = attr "tail" I (pList pInt)
 > flat = attr "flat" S (pList pInt)
@@ -138,7 +143,7 @@ Trying the error system
  Try
  > checkRule badChild
 
-Input Tree
+* Input Tree
 
 > example = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
 >   where s x = Node start (startTree |-> x) emptyAttrs
