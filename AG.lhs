@@ -196,6 +196,7 @@ The `AttrMap' field introduces the non-terminal data.
 
 
 ** Grammar basic blocks
+*** Names
 
 > type Name = String
 > type NonTerminalName = Name
@@ -203,19 +204,19 @@ The `AttrMap' field introduces the non-terminal data.
 > type ChildName = (Production, Name)
 > type AttrName = Name
 
-Note that the child doesn't link to the production, because
-that would cause a cycle and thus equality on children would
-diverge. (And we need equality)
-During typechecking we will only keep track about the
-ProdName anyways.
+*** Non-terminals
 
 > newtype NonTerminal = NT NonTerminalName deriving (Eq, Ord)
+
+*** Production
 
 > data Production = Production
 >   { prod_name :: ProdName
 >   , prod_orphans :: [Orphan]
 >   , prod_terminals :: Set (AttrOf T) }
 >   deriving (Eq, Ord)
+
+*** Children
 
 > data Child = Child
 >   { child_name :: ChildName
@@ -226,9 +227,9 @@ ProdName anyways.
 
 > type Children = [Child]
 
-Abstract so that the user doesn't manipulate Attribute.  (We
-must ensure the invariant that all attributes are of the T
-kind)
+*** Terminals
+`Terminals' is abstract so that the user doesn't manipulate
+`AttrOf'.
 
 > newtype Terminals = Terminals {terms_set :: Set (AttrOf T)}
 
@@ -237,6 +238,8 @@ kind)
 > consT :: Typeable a => Attr T a -> Terminals -> Terminals
 > consT t (Terminals ts) =
 >   Terminals $ Set.insert (AttrOf t) ts
+
+*** Misc functions
 
 > prod_child :: Production -> Orphan -> Child
 > prod_child p (c,n) = Child (p,c) n
@@ -248,6 +251,8 @@ kind)
 > orphan c = (snd (child_name c), child_nt c)
 > orphans = map orphan
 
+*** Show instances
+
 The show instances display the non-qualified names.  This
 might lead to misunderstanding in case homonymes are defined.
 
@@ -258,6 +263,8 @@ might lead to misunderstanding in case homonymes are defined.
 
 > instance Show Child where
 >   show = snd . child_name
+
+*** Public constructors
 
 > non_terminal = NT
 
@@ -359,12 +366,6 @@ TODO: explicit error (which ones are duplicated?)
 > valid_production :: Production -> Bool
 > valid_production p = nub cs == cs
 >   where cs = map fst $ prod_orphans p
-
-Check whether the given children belong to a production.
-
-> check_prod_children :: Production -> Children -> Bool
-> check_prod_children p cs =
->   ((==) `on` Set.fromList) (prod_children p) cs
 
 > gram_children :: Grammar -> Set Child
 > gram_children gram =
@@ -646,16 +647,23 @@ a call to `local' (see the code of `inh' and `syn').
 
 Errors in a rule.
 
-  `Error_Child c p' :
-     when child `c' was used in the context of the production `p`
-     which doesn't list this child.
+ - `Error_Rule_Invalid_Child c p' ::
+     When child `c' was used in the context of the production
+     `p` which doesn't list this child. This error coms from
+     a rule that projects attribute from a wrong child.
 
 > data Error
->   = Error_Child Child Production -- raised when building rules
->   | Error_Missing_Rules Missing  -- raised when checking rules with a grammar
+>   = Error_Rule_Invalid_Child Child Production
+>   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
 >   | Error_InhDesc_Duplicate [AttrOf I] -- raised when checking InhDesc
 >   | Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
 >   | Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
+>   | Error_ProdDesc_Duplicate_Children [Child] Production
+>   | Error_ProdDesc_Invalid_Children (Set Child) Production
+>   | Error_ProdDesc_Missing_Children (Set Child) Production
+>   | Error_ProdDesc_Duplicate_Terminals [AttrOf T]
+>   | Error_ProdDesc_Invalid_Terminals (Set (AttrOf T)) Production
+>   | Error_ProdDesc_Missing_Terminals (Set (AttrOf T)) Production
 >   deriving Show
 
 * Contexts, Constraints
@@ -819,7 +827,7 @@ Generate errors if the child is not valid in the current production.
 > assert_child c = do
 >   p <- current_production
 >   unless (c `elem` prod_children p)
->     $ throwError (Error_Child c p)
+>     $ throwError (Error_Rule_Invalid_Child c p)
 
 > cstr :: Typeable a =>
 >   Attr k a -> t -> Set (Constraint k t)
@@ -1049,7 +1057,7 @@ By hypothesis, we know that the attribute will be defined for them.
 
  > run :: Rule -> Either Error (InputTree -> SemTree)
 
-** Specifying the tree, input and output
+** Specifying input and output
 Rather than run the AG on the general tree type.
 
  > type Partial a = Either Error a -- success or failure monad
@@ -1080,7 +1088,7 @@ SynDesc is abstract
 >   pure x = SynDesc $ return $ pure x
 >   SynDesc f <*> SynDesc x =
 >     SynDesc $ liftM2 (<*>) f x
- 
+
 > project :: Typeable a => Attr S a -> SynDesc a
 > project a = SynDesc $ do
 >   tell (Set.singleton (AttrOf a))
@@ -1089,23 +1097,33 @@ SynDesc is abstract
 >    err = error $ "[BUG] project: undefined attribute " ++ show a
 
 *** Inherited attributes
-The following interface is enough.
-TODO: add errors when the same attribute is used twice.
+Describing the root's inherited attribute and the terminals
+of a production follow a same pattern, therefore the
+functions are generalised over the kind of attributes and
+will be instanciated with `I' or `T' depending on the case.
 
-> newtype InhDesc i = InhDesc { runInhDesc ::
->    Writer ([AttrOf I]) (i -> AttrMap) }
+> newtype AttrDesc k t  = AttrDesc { runAttrDesc ::
+>    Writer ([AttrOf k]) (t -> AttrMap) }
+
+> type InhDesc = AttrDesc I
+> type TermDesc = AttrDesc T
 
 > embed :: Typeable a =>
->   Attr I a -> (i -> a) -> InhDesc i
-> embed a p = InhDesc $ do
+>   Attr k a -> (t -> a) -> AttrDesc k t
+> embed a p = AttrDesc $ do
 >   tell [AttrOf a]
 >   return $ Map.singleton (Attribute a) . toDyn . p
 
-> (#) :: InhDesc i -> InhDesc i -> InhDesc i
-> InhDesc x # InhDesc y =
->   InhDesc $ liftA2 union x y
+> (#) :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t
+> AttrDesc x # AttrDesc y =
+>   AttrDesc $ liftA2 union x y
 >  where
->    union f g = \i -> Map.union (f i) (g i)
+>    union f g = \x -> Map.union (f x) (g x)
+
+Private
+
+> runInhDesc = runAttrDesc
+> runTermDesc = runAttrDesc
 
 *** Example
 
@@ -1150,8 +1168,8 @@ just like when using `tail'.
 of type `t'.
 
 > data ChildDesc t = ChildDesc
->   { childDescChild :: Child
->   , childDescProj :: t -> Maybe (Child, Dynamic) }
+>   { childDesc_child :: Child
+>   , childDesc_proj :: t -> Maybe (Child, Dynamic) }
 
 `childDesc' describes a child: the user provides a partial
 function to extract the child. The function typically does
@@ -1166,7 +1184,7 @@ a pattern matching which is the reason it might fail.
 
 *** ProdDesc
 
-`ProdDesc a' describes a constructors of the type `a' (viewed
+`ProdDesc a' describes a constructor of the type `a' (viewed
 as a grammar production).
 
 > data ProdDesc t = ProdDesc
@@ -1174,29 +1192,60 @@ as a grammar production).
 >   , prodDescMatch :: t -> Maybe (Child :-> Dynamic, AttrMap)
 >   }
 
-`TermDesc a' describes the terminal attributes associated with type `a'.
-
-> data TermDesc a = NoTerms
-> termDescAttrs :: TermDesc a -> AttrMap
-> termDescAttrs = undefined
-
 `prodDesc' associates a production to a constructor.
 
-TODO: Should we rather use a monad to report an error when
-the children are not children of the production?
-also to check the termdesc.
+- the children must be children of the production.
+- all the production's children are provided
+- all the production's terminals are provided
+
+Note: No error is raised if the termDesc produces more
+terminals than the production needs.  we will just ignore
+them.
 
 > prodDesc :: (Typeable a) =>
->   Production -> [ChildDesc a] -> TermDesc a -> ProdDesc a
-> prodDesc p cds ts
->   | check_prod_children p cs = ProdDesc p projection
->   | otherwise = err
+>   Production -> [ChildDesc a] -> TermDesc a -> AG (ProdDesc a)
+> prodDesc prod cds ts
+>   | not (null duplicates) =
+>       throwError $ Error_ProdDesc_Duplicate_Children duplicates prod
+>   | not (Set.null invalid_children) =
+>       throwError $ Error_ProdDesc_Invalid_Children invalid_children prod
+>   | not (Set.null missing_children) =
+>       throwError $ Error_ProdDesc_Missing_Children missing_children prod
+>   | not (Set.null invalid_terminals) =
+>       throwError $ Error_ProdDesc_Invalid_Terminals invalid_terminals prod
+>   | not (Set.null missing_terminals) =
+>       throwError $ Error_ProdDesc_Missing_Terminals missing_terminals prod
+>   | otherwise = do
+>       check_attr_unique Error_ProdDesc_Duplicate_Terminals ts
+>       return $ ProdDesc prod projection
 >   where
->     cs = childDescChild <$> cds
->     projection =
->       fmap (\cs -> (Map.fromList cs, termDescAttrs ts))
->                    . sequence . traverse childDescProj cds
->     err = error "prodDesc: list of children inconsistent with the production"
+>     projection = liftA2 (liftA2 (,)) child_proj (Just . term_proj)
+>     child_proj = fmap Map.fromList . sequence . traverse childDesc_proj cds
+>     (term_proj, term_attrs) = runWriter . runTermDesc $ ts
+>     -- Checking children
+>     duplicates = nub cs \\ cs
+>     invalid_children = cs `diff` prod_children prod
+>     missing_children = prod_children prod `diff` cs
+>     cs = childDesc_child <$> cds
+>     diff = Set.difference `on` Set.fromList
+>     -- Checking terminals
+>     prod_terms = prod_terminals prod
+>     terms = Set.fromList term_attrs
+>     invalid_terminals = Set.difference terms prod_terms
+>     missing_terminals = Set.difference prod_terms terms
+
+`check_attr_unique' is private, but used by `check_inh_unique' and
+`prodDesc'.
+
+> check_attr_unique ::
+>   ([AttrOf k] -> Error) -> AttrDesc k t -> AG ()
+> check_attr_unique err desc
+>   | xs' == xs = return ()
+>   | otherwise = throwError $ err (xs \\ xs')
+>   where
+>     (proj, xs) = runWriter . runAttrDesc $ desc
+>     xs' = nub xs
+
 
 *** NtDesc
 
@@ -1225,8 +1274,6 @@ distinct.
 >       maybe (match ps x)
 >             (\(cs, ts) -> Match (prodDescProd p) cs ts)
 >         $ prodDescMatch p x
->
->
 
 *** GramDesc
 
@@ -1262,12 +1309,8 @@ Unique attributes
 
 > check_inh_unique ::
 >   InhDesc i -> AG ()
-> check_inh_unique desc
->   | is' == is = return ()
->   | otherwise = throwError $ Error_InhDesc_Duplicate (is \\ is')
->   where
->     (proj, is) = runWriter . runInhDesc $ desc
->     is' = nub is
+> check_inh_unique =
+>   check_attr_unique Error_InhDesc_Duplicate
 
 All the required inherited attributes have been specified for
 the root.
