@@ -1,4 +1,4 @@
-* Overview
+* overview
 
 EDSL for attribute grammars in Haskell inspired by De Moor's
 design.  With runtime typechecking. It is the dynamic version
@@ -629,6 +629,9 @@ a call to `local' (see the code of `inh' and `syn').
 >   | Error_NtDesc_Duplicate_Productions [Production] NonTerminal
 >   | Error_NtDesc_Invalid_Productions (Set Production) NonTerminal
 >   | Error_GramDesc_Duplicate NonTerminal
+>   | Error_GramDesc_Missing (Set NonTerminal)
+>   | Error_GramDesc_Wrong_Types (Set Child)
+>   | Error_Missing Missing
 >   deriving Show
 
  - `Error_Rule_Invalid_Child c p' ::
@@ -1300,12 +1303,14 @@ root of the tree will have type `a'.
   the typeRep associated with each `childDesc'.
 
 > newtype GramDesc a = GramDesc { runGramDesc ::
->   AG (Child :-> TypeRep, NonTerminal :-> (Dynamic -> Match)) }
+>   AG (NonTerminal, Grammar, Child :-> TypeRep, GramMap) }
+
+> type GramMap = NonTerminal :-> (TypeRep, Dynamic -> Match)
 
 > gramDesc :: (Typeable a) =>
 >   NtDesc a -> GramDesc a
 > gramDesc n =
->   insert_nt n $ GramDesc $ return (Map.empty, Map.empty)
+>   insert_nt n $ GramDesc $ return (undefined, Set.empty, Map.empty, Map.empty)
 
 - `insert_nt': The non-terminal associated with the NtDesc must not be
   already in the GramDesc.
@@ -1314,16 +1319,17 @@ root of the tree will have type `a'.
 >   NtDesc a -> GramDesc b -> GramDesc a
 > insert_nt ndesc gdesc = GramDesc $ do
 >   n <- runNtDesc ndesc
->   (gram_children_types, gram_match) <- runGramDesc gdesc
+>   (_, gram_prods, gram_children_types, gram_match) <- runGramDesc gdesc
 >   let nt = ntDesc_nt n
 >   when (nt `Map.member` gram_match)
 >     $ throwError $ Error_GramDesc_Duplicate nt
->   let match = Map.insert nt (nt_match n) gram_match
+>   let match = Map.insert nt (typeRep ndesc, nt_match n) gram_match
 >   let children_types = Map.union (ntDesc_children_types n) gram_children_types
->   return (children_types, match)
+>   let grammar = Set.union (ntDesc_prods n) gram_prods
+>   return (nt, grammar, children_types, match)
 
 Private
- 
+
 > nt_match :: Typeable a => NtDescRec a -> Dynamic -> Match
 > nt_match d x = ntDesc_match d $ fromDyn x err
 >   where err = error $ "[BUG] nt_match: expected type: "
@@ -1372,11 +1378,49 @@ ensured by the rules.
 >     cstr (AttrOf a) = Constraint a root
 >     (proj, ss) = runWriter . runSynDesc $ desc
 
-Check the whole AG
+The non-terminal associated with each child must correspond
+with the typeRep associated with each `childDesc'.
+
+> check_gramDesc ::
+>   GramDesc a -> AG (NonTerminal, Grammar, GramMap)
+> check_gramDesc (GramDesc g) = do
+>   (nt, gram, ctypes, grammap) <- g
+>   check_children_types ctypes grammap
+>   return $ (nt, gram, grammap)
+
+> check_children_types ::
+>   Child :-> TypeRep -> GramMap -> AG ()
+> check_children_types types gram
+>   | not (Set.null missing) =
+>       throwError $ Error_GramDesc_Missing missing
+>   | not (Map.null wrong_types) =
+>       throwError $ Error_GramDesc_Wrong_Types (Map.keysSet wrong_types)
+>   | otherwise = return ()
+>  where
+>    (!) = (Map.!)
+>    missing = Set.difference children_nt (Map.keysSet gram)
+>    children_nt = child_nt `Set.map` Map.keysSet types
+>    wrong_types = Map.filterWithKey wrong_type types
+>    wrong_type c t = fst (gram ! child_nt c) /= t -- well-defined if Set.null missing
+
+> check_grammar ::
+>   Missing -> AG ()
+> check_grammar missing
+>   | nullMissing missing = throwError $ Error_Missing missing
+>   | otherwise = return ()
+
+Check the whole AG.
 
 > check ::
->   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG ()
-> check = undefined
+>   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG GramMap
+> check g i s r = do
+>   (root, grammar, gmap) <- check_gramDesc g
+>   let ctx = context r
+>   check_grammar (missing grammar ctx)
+>   check_inh_unique i
+>   check_inh_required i root (require_I ctx)
+>   check_syn_ensured s grammar root (ensure_S ctx)
+>   return gmap
 
 * Literate Haskell with org-mode
 The documentation part of this literate file is written in
