@@ -1089,7 +1089,7 @@ will be instanciated with `I' or `T' depending on the case.
 > emptyAttrDesc = AttrDesc $ return $ pure $ Map.empty
 
 > embed_I :: Typeable a =>
->   Attr I a -> (t -> a) -> InhDesc t
+>   Attr I a -> (i -> a) -> InhDesc i
 > embed_I a p = embed_dyn a (toDyn . p)
 
 > embed_T :: Typeable a =>
@@ -1168,10 +1168,12 @@ a pattern matching which is the reason it might fail.
 > childDesc :: (Typeable a, Typeable b) =>
 >   Child -> (a -> Maybe b) -> ChildDesc a
 
-> childDesc c p = this
+> childDesc c p = ChildDesc c ty  p'
 >   where
->     this = ChildDesc c (typeRep this)  p'
+>     ty = typeRep (proxy p)
 >     p' x = (\y -> (c, toDyn y)) <$> p x
+>     proxy :: (a -> Maybe b) -> Proxy b
+>     proxy _ = Proxy
 
 *** ProdDesc
 
@@ -1406,7 +1408,7 @@ with the typeRep associated with each `childDesc'.
 > check_grammar ::
 >   Missing -> AG ()
 > check_grammar missing
->   | nullMissing missing = throwError $ Error_Missing missing
+>   | not (nullMissing missing) = throwError $ Error_Missing missing
 >   | otherwise = return ()
 
 Check the whole AG.

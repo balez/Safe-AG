@@ -11,7 +11,7 @@
 
 ** Module Imports
 
-> module Examples where
+> module Repmin where
 > import Data.Dynamic
 > import qualified Data.Set as Set
 > import qualified Data.Map as Map
@@ -37,15 +37,15 @@
 
  > btree = non_terminal "BTree"
  > root = non_terminal "Root"
-
-*** Productions
-
- > start = production btree "Start" [startTree] nilT
+ 
+ *** Productions
+ 
+ > start = production root "Start" [startTree] nilT
  > fork = production btree "Fork" [leftTree, rightTree] nilT
  > leaf = production btree "Leaf" [] (val `consT` nilT)
-
-*** Children
-
+ 
+ *** Children
+ 
  > startTree = child start "startTree" btree
  > leftTree = child fork "leftTree" btree
  > rightTree = child fork "rightTree" btree
@@ -79,24 +79,31 @@ The same grammar is written as follows:
   them to a concrete type, this will allow
   us to run AG safely.
 
-> btreeDesc = ntDesc btree
->   [ prodDesc fork
->       [ childDesc leftTree leftTreeProj
->       , childDesc rightTree rightTreeProj]
->       NoTerms
->   , prodDesc leaf [] NoTerms]
->   `insertNT`
->   (gramDesc $ ntDesc root
+> btreeDesc = ntDesc root
 >    [ prodDesc start
 >        [ childDesc startTree startTreeProj ]
->        NoTerms
->    ])
+>        emptyAttrDesc
+>    ]
+>   `insert_nt`
+>    (gramDesc $
+>      ntDesc btree
+>      [ prodDesc fork
+>          [ childDesc leftTree leftTreeProj
+>          , childDesc rightTree rightTreeProj]
+>          emptyAttrDesc
+>      , prodDesc leaf [] (embed_T val leafProj)]
+>      )
 >  where
 >    leftTreeProj (Fork l r) = Just l
 >    leftTreeProj _ = Nothing
 >    rightTreeProj (Fork l r) = Just r
 >    rightTreeProj _ = Nothing
+>    leafProj (Leaf x) = Just x
+>    leafProj _ = Nothing
 >    startTreeProj (Start t) = Just t
+
+> repminI = emptyAttrDesc
+> repminS = project ntree
 
 * Attributes
 
@@ -122,7 +129,8 @@ must be given last.
 
 > locminR = syns locmin
 >           [ leaf |- ter val
->           , start |- startTree!locmin]
+>           , start |- startTree!locmin
+>           , fork |- startTree!locmin]
 >   & collectAll locmin minimum fork
 
 > ntreeR = syns ntree
