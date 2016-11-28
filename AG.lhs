@@ -460,8 +460,9 @@ only be called after the AG has been typechecked at runtime.
 >   (\d -> fromDyn d (err d))
 >   <$> Map.lookup (Attribute a) m
 >   where
->     err d = error $ "[BUG] lookupAttr: attribute "
->             ++ show a
+>     err d = error $ "[BUG] lookupAttr:" ++ attr_type_err a d
+
+> attr_type_err a d = "attribute " ++ show a
 >             ++ ", expected type: " ++ show (typeRep a)
 >             ++ ", runtime type: " ++ show (dynTypeRep d)
 
@@ -1084,11 +1085,14 @@ will be instanciated with `I' or `T' depending on the case.
 > emptyAttrDesc :: AttrDesc k t
 > emptyAttrDesc = AttrDesc $ return $ pure $ Map.empty
 
-> embed :: Typeable a =>
->   Attr k a -> (t -> a) -> AttrDesc k t
-> embed a p = AttrDesc $ do
->   tell [AttrOf a]
->   return $ Map.singleton (Attribute a) . toDyn . p
+> embed_I :: Typeable a =>
+>   Attr I a -> (t -> a) -> InhDesc t
+> embed_I a p = embed_dyn a (toDyn . p)
+
+> embed_T :: Typeable a =>
+>   Attr T a -> (t -> Maybe a) -> TermDesc t
+> embed_T a p = embed_dyn a (toDyn . (fromMaybe <*> err) . p)
+>   where err = error $ "[BUG] embed_T: match error to compute terminal: " ++ show a
 
 > (#) :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t
 > AttrDesc x # AttrDesc y =
@@ -1097,6 +1101,12 @@ will be instanciated with `I' or `T' depending on the case.
 >    union f g = \x -> Map.union (f x) (g x)
 
 Private
+
+> embed_dyn :: Typeable a =>
+>   Attr k a -> (t -> Dynamic) -> AttrDesc k t
+> embed_dyn a p = AttrDesc $ do
+>   tell [AttrOf a]
+>   return $ Map.singleton (Attribute a) . p
 
 > runInhDesc = runAttrDesc
 > runTermDesc = runAttrDesc
@@ -1322,7 +1332,7 @@ Private
 
 ** Checking the AG
 
-the AG monad
+The AG monad
 
 > type AG = Except Error
 
