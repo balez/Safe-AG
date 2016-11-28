@@ -1,44 +1,3 @@
-* Literate Haskell with org-mode
-The documentation part of this literate file is written in
-`org-mode'.  To benefit from the enhanced navigation given by
-this mode, you should do the following to setup emacs.
-
-- install mmm-mode
-
-  #+BEGIN_SRC elisp
-  (package install 'mmm-mode)
-  #+END_SRC
-
-- add to your .emacs:
-
-  #+BEGIN_SRC elisp
-  (mmm-add-classes
-   '((literate-haskell-bird
-      :submode literate-haskell-mode
-      :front "^>"
-      :include-front true
-      :back "^[^>]*$"
-      )
-     ))
-  #+END_SRC
-
-Then when loading this file, use `M-x org-mode' followed by
-`M-x mmm-ify-by-class' and enter `literate-haskell-bird'.
-
-You now have both `org-mode' and `literate-haskell-mode'
-together.
-
-** Alternatively, use `occur' to generate a table of content
-
-`M-x occur' creates an interactive buffer in which the lines
-matching a regexp will link to the corresponding line in the
-original buffer.
-
-Use `occur' with regexp `^\*' to see all sections, or `^\* '
-to see level-1 sections only, `^\*\* ' to see level-2
-sections, `^\*\*\* ' for level-3, and so on. The syntax
-`^*\{1,3\} ' can be used as well to see sections of levels 1 to 3.
-
 * Overview
 
 EDSL for attribute grammars in Haskell inspired by De Moor's
@@ -133,6 +92,13 @@ http://hackage.haskell.org/package/base-4.9.0.0/docs/GHC-Stack.html
 > justLeft (Left x) = Just x
 > justLeft _ = Nothing
 
+** List
+
+> is_set :: Eq a => [a] -> Bool
+> is_set l = nub l == l
+
+> duplicates :: Eq a => [a] -> [a]
+> duplicates l = l \\ nub l
 
 ** String operations (over ShowS)
 
@@ -364,7 +330,7 @@ then they are different: only their names are overloaded.
 TODO: explicit error (which ones are duplicated?)
 
 > valid_production :: Production -> Bool
-> valid_production p = nub cs == cs
+> valid_production p = is_set cs
 >   where cs = map fst $ prod_orphans p
 
 > gram_children :: Grammar -> Set Child
@@ -645,12 +611,7 @@ a call to `local' (see the code of `inh' and `syn').
 > checkRule :: Rule -> Maybe Error
 > checkRule = justLeft . fst . runRule
 
-Errors in a rule.
-
- - `Error_Rule_Invalid_Child c p' ::
-     When child `c' was used in the context of the production
-     `p` which doesn't list this child. This error coms from
-     a rule that projects attribute from a wrong child.
+* Error datatype
 
 > data Error
 >   = Error_Rule_Invalid_Child Child Production
@@ -664,7 +625,15 @@ Errors in a rule.
 >   | Error_ProdDesc_Duplicate_Terminals [AttrOf T]
 >   | Error_ProdDesc_Invalid_Terminals (Set (AttrOf T)) Production
 >   | Error_ProdDesc_Missing_Terminals (Set (AttrOf T)) Production
+>   | Error_NtDesc_Duplicate_Productions [Production] NonTerminal
+>   | Error_NtDesc_Invalid_Productions (Set Production) NonTerminal
+>   | Error_GramDesc_Duplicate NonTerminal
 >   deriving Show
+
+ - `Error_Rule_Invalid_Child c p' ::
+     When child `c' was used in the context of the production
+     `p` which doesn't list this child. This error coms from
+     a rule that projects attribute from a wrong child.
 
 * Contexts, Constraints
 
@@ -689,7 +658,7 @@ production.
 Therefore we only need to keep track of attributes that are
 used (required) and attributes that are defined (ensured).
 
-Constraints
+** Constraints
 
 > data Constraint k t where
 >   Constraint :: Typeable a =>
@@ -714,6 +683,7 @@ Constraints
 >   fmap f (Constraint a x) =
 >     Constraint a (f x)
 
+** Contexts
 Contexts are modelled with sets of premises and
 conclusions. They form a monoid, therefore the Writer monad
 uses the mappend function to update the constraints. Note
@@ -765,6 +735,7 @@ Extract all the terminals axioms from a grammar.
 >   where
 >     ensure (AttrOf a) = Constraint a p
 
+** Checking contexts
 There is no invalid context, and no redundent
 constraints. The only thing we can do is to check whether a
 context is complete: i.e. all `require` constraints are met
@@ -775,8 +746,7 @@ defined in the grammar.
 >   Grammar -> Context -> Bool
 > complete = nullMissing `res2` missing
 
-Missing rules
-
+*** Missing rules
 The missing `ensure` constraints for the rules to be complete.
 
 > type Missing = (Set Ensure_I, Set Ensure_S, Set Ensure_T)
@@ -816,6 +786,7 @@ productions.
 > missing_T :: Set Ensure_T -> Set Require_T -> Set Ensure_T
 > missing_T = flip Set.difference
 
+** Context primitives
 The primitive ways to update the context are through the
 require_* and ensure_* functions given below.
 
@@ -861,9 +832,11 @@ Generate errors if the child is not valid in the current production.
 > require_terminal a = tell_parent $ \p ->
 >   emptyCtx { require_T = cstr a p }
 
-The primitives to build aspects project attributes from either
-the parent, a child of the production or the terminal child.
-Those primitive generate `Require' constraints.
+** Rule primitives
+Rules are defined in an applicative `AR', that comes with
+primitives to project attributes from either the parent, a
+child of the production or the terminal child.  Those
+primitive generate `Require' constraints.
 
 The `Maybe' versions of `chi', `par' and `ter' do not add any
 constraints: their success or failure is captured by the
@@ -1108,6 +1081,9 @@ will be instanciated with `I' or `T' depending on the case.
 > type InhDesc = AttrDesc I
 > type TermDesc = AttrDesc T
 
+> emptyAttrDesc :: AttrDesc k t
+> emptyAttrDesc = AttrDesc $ return $ pure $ Map.empty
+
 > embed :: Typeable a =>
 >   Attr k a -> (t -> a) -> AttrDesc k t
 > embed a p = AttrDesc $ do
@@ -1169,6 +1145,7 @@ of type `t'.
 
 > data ChildDesc t = ChildDesc
 >   { childDesc_child :: Child
+>   , childDesc_type :: TypeRep -- representation of the child's type
 >   , childDesc_proj :: t -> Maybe (Child, Dynamic) }
 
 `childDesc' describes a child: the user provides a partial
@@ -1178,8 +1155,9 @@ a pattern matching which is the reason it might fail.
 > childDesc :: (Typeable a, Typeable b) =>
 >   Child -> (a -> Maybe b) -> ChildDesc a
 
-> childDesc c p = ChildDesc c p'
+> childDesc c p = this
 >   where
+>     this = ChildDesc c (typeRep this)  p'
 >     p' x = (\y -> (c, toDyn y)) <$> p x
 
 *** ProdDesc
@@ -1187,10 +1165,13 @@ a pattern matching which is the reason it might fail.
 `ProdDesc a' describes a constructor of the type `a' (viewed
 as a grammar production).
 
-> data ProdDesc t = ProdDesc
->   { prodDescProd :: Production
->   , prodDescMatch :: t -> Maybe (Child :-> Dynamic, AttrMap)
->   }
+> newtype ProdDesc t = ProdDesc { runProdDesc ::
+>   AG (ProdDescRec t) }
+
+> data ProdDescRec t = ProdDescRec
+>   { prodDesc_prod :: Production
+>   , prodDesc_children_types :: Child :-> TypeRep
+>   , prodDesc_match :: t -> Maybe (Child :-> Dynamic, AttrMap) }
 
 `prodDesc' associates a production to a constructor.
 
@@ -1203,10 +1184,12 @@ terminals than the production needs.  we will just ignore
 them.
 
 > prodDesc :: (Typeable a) =>
->   Production -> [ChildDesc a] -> TermDesc a -> AG (ProdDesc a)
-> prodDesc prod cds ts
->   | not (null duplicates) =
->       throwError $ Error_ProdDesc_Duplicate_Children duplicates prod
+>   Production -> [ChildDesc a] -> TermDesc a -> ProdDesc a
+> prodDesc prod cds ts = ProdDesc $ this
+>  where
+>  this
+>   | not (null duplicate_children) =
+>       throwError $ Error_ProdDesc_Duplicate_Children duplicate_children prod
 >   | not (Set.null invalid_children) =
 >       throwError $ Error_ProdDesc_Invalid_Children invalid_children prod
 >   | not (Set.null missing_children) =
@@ -1217,13 +1200,15 @@ them.
 >       throwError $ Error_ProdDesc_Missing_Terminals missing_terminals prod
 >   | otherwise = do
 >       check_attr_unique Error_ProdDesc_Duplicate_Terminals ts
->       return $ ProdDesc prod projection
+>       return $ ProdDescRec prod children_types match
 >   where
->     projection = liftA2 (liftA2 (,)) child_proj (Just . term_proj)
+>     match = liftA2 (liftA2 (,)) child_proj (Just . term_proj)
+>     children_types = Map.fromList $ child_type <$> cds
+>     child_type c = (childDesc_child c, childDesc_type c)
 >     child_proj = fmap Map.fromList . sequence . traverse childDesc_proj cds
 >     (term_proj, term_attrs) = runWriter . runTermDesc $ ts
 >     -- Checking children
->     duplicates = nub cs \\ cs
+>     duplicate_children = duplicates cs
 >     invalid_children = cs `diff` prod_children prod
 >     missing_children = prod_children prod `diff` cs
 >     cs = childDesc_child <$> cds
@@ -1240,40 +1225,59 @@ them.
 > check_attr_unique ::
 >   ([AttrOf k] -> Error) -> AttrDesc k t -> AG ()
 > check_attr_unique err desc
->   | xs' == xs = return ()
->   | otherwise = throwError $ err (xs \\ xs')
+>   | null xs' = return ()
+>   | otherwise = throwError $ err xs'
 >   where
 >     (proj, xs) = runWriter . runAttrDesc $ desc
->     xs' = nub xs
-
+>     xs' = duplicates xs
 
 *** NtDesc
 
 `NtDesc a' associates a non-terminal to the datatype `a'
 
-> data NtDesc t =
->   NtDesc { ntDescNt :: NonTerminal
->          , ntDescProds :: Set Production
->          , ntDescMatch :: t -> Match }
+> newtype NtDesc t = NtDesc { runNtDesc ::
+>   AG (NtDescRec t) }
+
+> data NtDescRec t = NtDescRec
+>   { ntDesc_nt :: NonTerminal
+>   , ntDesc_prods :: Set Production
+>   , ntDesc_children_types :: Child :-> TypeRep
+>   , ntDesc_match :: t -> Match }
 
 > data Match =
->   Match { matchProd :: Production
->         , matchChild :: Child :-> Dynamic
->         , matchTerminals :: AttrMap }
+>   Match { math_prod :: Production
+>         , match_child :: Child :-> Dynamic
+>         , match_terminals :: AttrMap }
 
-TODO: Check that the productions are valid (same NT) and all
-distinct.
+
+- all productions must belong to the given non-terminal
+- productions must be distincts
 
 > ntDesc :: (Typeable a) =>
 >   NonTerminal -> [ProdDesc a] -> NtDesc a
-> ntDesc n ps = NtDesc n ps' (match ps)
->   where
->     ps' = Set.fromList (prodDescProd <$> ps)
->     match [] x = error "ntDesc: match failure"
->     match (p:ps) x =
->       maybe (match ps x)
->             (\(cs, ts) -> Match (prodDescProd p) cs ts)
->         $ prodDescMatch p x
+> ntDesc nonterm agps =
+>   NtDesc $ this =<< sequence (runProdDesc <$> agps)
+>  where
+>   this :: [ProdDescRec a] -> AG (NtDescRec a)
+>   this ps
+>    | not (null duplicate_prods) =
+>        throwError $ Error_NtDesc_Duplicate_Productions duplicate_prods nonterm
+>    | not (Set.null invalid_prods) =
+>        throwError $ Error_NtDesc_Invalid_Productions invalid_prods nonterm
+>    | otherwise = return $ NtDescRec nonterm productions children_types (match ps)
+>    where
+>      productions = Set.fromList prodlist
+>      children_types = Map.unions (prodDesc_children_types <$> ps)
+>      -- Pattern matching function
+>      match [] x = error "ntDesc: match failure due to incorrect gramDesc specification" -- (or bug from the library)
+>      match (p:ps) x =
+>        maybe (match ps x)
+>              (\(cs, ts) -> Match (prodDesc_prod p) cs ts)
+>          $ prodDesc_match p x
+>      -- Checking the production
+>      prodlist = prodDesc_prod <$> ps
+>      duplicate_prods = duplicates prodlist
+>      invalid_prods = Set.filter ((nonterm /=) . prod_nt) productions
 
 *** GramDesc
 
@@ -1281,23 +1285,40 @@ distinct.
 `a' is associated to the start symbol of the grammar: the
 root of the tree will have type `a'.
 
-> newtype GramDesc a =
->   GramDesc (NonTerminal :-> (Dynamic -> Match))
+- The child_type map is used later to check that the
+  non-terminal associated with each child corresponds with
+  the typeRep associated with each `childDesc'.
+
+> newtype GramDesc a = GramDesc { runGramDesc ::
+>   AG (Child :-> TypeRep, NonTerminal :-> (Dynamic -> Match)) }
 
 > gramDesc :: (Typeable a) =>
 >   NtDesc a -> GramDesc a
-> gramDesc n = insertNT n (GramDesc Map.empty)
+> gramDesc n =
+>   insert_nt n $ GramDesc $ return (Map.empty, Map.empty)
 
-TODO:
-1) check if the non-terminal isn't already in the GramDesc.
-2) check if the children have the right type!!! (using TypeRep)
+- `insert_nt': The non-terminal associated with the NtDesc must not be
+  already in the GramDesc.
 
-> insertNT :: (Typeable a) =>
+> insert_nt :: (Typeable a) =>
 >   NtDesc a -> GramDesc b -> GramDesc a
-> insertNT n (GramDesc ns) =
->   GramDesc $ Map.insert (ntDescNt n) match ns
->  where match x = ntDescMatch n $ fromDyn x err
->        err = error "insertNT: assert false"
+> insert_nt ndesc gdesc = GramDesc $ do
+>   n <- runNtDesc ndesc
+>   (gram_children_types, gram_match) <- runGramDesc gdesc
+>   let nt = ntDesc_nt n
+>   when (nt `Map.member` gram_match)
+>     $ throwError $ Error_GramDesc_Duplicate nt
+>   let match = Map.insert nt (nt_match n) gram_match
+>   let children_types = Map.union (ntDesc_children_types n) gram_children_types
+>   return (children_types, match)
+
+Private
+ 
+> nt_match :: Typeable a => NtDescRec a -> Dynamic -> Match
+> nt_match d x = ntDesc_match d $ fromDyn x err
+>   where err = error $ "[BUG] nt_match: expected type: "
+>               ++ show (typeRep d) ++ ", runtime type: "
+>               ++ show (dynTypeRep x)
 
 ** Checking the AG
 
@@ -1347,7 +1368,48 @@ Check the whole AG
 >   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG ()
 > check = undefined
 
-* Local variables for emacs
+* Literate Haskell with org-mode
+The documentation part of this literate file is written in
+`org-mode'.  To benefit from the enhanced navigation given by
+this mode, you should do the following to setup emacs.
+
+- install mmm-mode
+
+  #+BEGIN_SRC elisp
+  (package install 'mmm-mode)
+  #+END_SRC
+
+- add to your .emacs:
+
+  #+BEGIN_SRC elisp
+  (mmm-add-classes
+   '((literate-haskell-bird
+      :submode literate-haskell-mode
+      :front "^>"
+      :include-front true
+      :back "^[^>]*$"
+      )
+     ))
+  #+END_SRC
+
+Then when loading this file, use `M-x org-mode' followed by
+`M-x mmm-ify-by-class' and enter `literate-haskell-bird'.
+
+You now have both `org-mode' and `literate-haskell-mode'
+together.
+
+** Alternatively, use `occur' to generate a table of content
+
+`M-x occur' creates an interactive buffer in which the lines
+matching a regexp will link to the corresponding line in the
+original buffer.
+
+Use `occur' with regexp `^\*' to see all sections, or `^\* '
+to see level-1 sections only, `^\*\* ' to see level-2
+sections, `^\*\*\* ' for level-3, and so on. The syntax
+`^*\{1,3\} ' can be used as well to see sections of levels 1 to 3.
+
+** Local variables for emacs
 Local Variables:
 mode: org
 eval: (org-indent-mode -1)
