@@ -105,11 +105,11 @@ It seems we're doing twice the same thing.
 > import Control.Monad.Writer.Strict hiding (sequence)
 > import Control.Monad.Reader hiding (sequence)
 > import Data.Maybe (fromMaybe)
+> import Data.List (nub, (\\))
 > import Data.Dynamic
 > import Data.Function (on)
 > import qualified Data.Set as Set
 > import Data.Set (Set)
-> import Data.List (nub)
 > import qualified Data.Map as Map
 > import Data.Map (Map)
 > import Data.Traversable
@@ -470,6 +470,10 @@ attributes by their types.
 > instance Show Attribute where
 >   show (Attribute x) = show x
 
+> instance Show (AttrOf k) where
+>   show (AttrOf x) = show x
+
+
 *** Attributions
 An attribution is a finite map from attribute name to values.
 Note: the use of Dynamics prevents us from having polymorphic
@@ -539,7 +543,7 @@ empty.
 An attribute grammar is given by a context free grammars and
 attribution rules.
 
-> type AG = (Grammar, Rule)
+ > type AG = (Grammar, Rule)
 
 In order to check that the rules are compatible with a
 grammar, we must collect information about the rules:
@@ -648,7 +652,10 @@ Errors in a rule.
 
 > data Error
 >   = Error_Child Child Production -- raised when building rules
->   | Error_Missing_Rules Missing  -- raised when combining a grammar with rules.
+>   | Error_Missing_Rules Missing  -- raised when checking rules with a grammar
+>   | Error_InhDesc_Duplicate [AttrOf I] -- raised when checking InhDesc
+>   | Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
+>   | Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
 >   deriving Show
 
 * Contexts, Constraints
@@ -1063,13 +1070,21 @@ For the synthesized attributes the following interface is enough.
 
 SynDesc is abstract
 
-> newtype SynDesc s = SynDesc (WriterT (Set (AttrOf S)) (Reader AttrMap) s)
->   deriving (Functor, Applicative)
+> newtype SynDesc s = SynDesc { runSynDesc ::
+>   Writer (Set (AttrOf S)) (AttrMap -> s) }
 
+> instance Functor SynDesc where
+>   fmap f x = pure f <*> x
+
+> instance Applicative SynDesc where
+>   pure x = SynDesc $ return $ pure x
+>   SynDesc f <*> SynDesc x =
+>     SynDesc $ liftM2 (<*>) f x
+ 
 > project :: Typeable a => Attr S a -> SynDesc a
 > project a = SynDesc $ do
 >   tell (Set.singleton (AttrOf a))
->   fromMaybe err . lookupAttr a <$> ask
+>   return $ fromMaybe err . lookupAttr a
 >  where
 >    err = error $ "[BUG] project: undefined attribute " ++ show a
 
@@ -1077,13 +1092,15 @@ SynDesc is abstract
 The following interface is enough.
 TODO: add errors when the same attribute is used twice.
 
-> newtype InhDesc i = InhDesc (Writer ([AttrOf I]) (i -> AttrMap))
+> newtype InhDesc i = InhDesc { runInhDesc ::
+>    Writer ([AttrOf I]) (i -> AttrMap) }
+
 > embed :: Typeable a =>
 >   Attr I a -> (i -> a) -> InhDesc i
 > embed a p = InhDesc $ do
 >   tell [AttrOf a]
 >   return $ Map.singleton (Attribute a) . toDyn . p
- 
+
 > (#) :: InhDesc i -> InhDesc i -> InhDesc i
 > InhDesc x # InhDesc y =
 >   InhDesc $ liftA2 union x y
@@ -1096,10 +1113,10 @@ TODO: add errors when the same attribute is used twice.
 data I = I { a :: Int, b :: Bool }
 data S = S { c :: String, d :: Float }
 
-count :: Attr Int
-flag :: Attr Bool
+count  :: Attr Int
+flag   :: Attr Bool
 output :: Attr String
-speed :: Attr Float
+speed  :: Attr Float
 
 specI = embed count a # embed flag b :: InhDesc I
 specS = S <$> project output <*> project speed :: SynDesc S
@@ -1234,6 +1251,58 @@ TODO:
 >   GramDesc $ Map.insert (ntDescNt n) match ns
 >  where match x = ntDescMatch n $ fromDyn x err
 >        err = error "insertNT: assert false"
+
+** Checking the AG
+
+the AG monad
+
+> type AG = Except Error
+
+Unique attributes
+
+> check_inh_unique ::
+>   InhDesc i -> AG ()
+> check_inh_unique desc
+>   | is' == is = return ()
+>   | otherwise = throwError $ Error_InhDesc_Duplicate (is \\ is')
+>   where
+>     (proj, is) = runWriter . runInhDesc $ desc
+>     is' = nub is
+
+All the required inherited attributes have been specified for
+the root.
+
+> check_inh_required ::
+>   InhDesc i -> NonTerminal -> Set Require_I -> AG ()
+> check_inh_required desc root req
+>   | Set.null missing = return ()
+>   | otherwise = throwError $ Error_InhDesc_Missing missing
+>   where
+>     missing = Set.difference req' is'
+>     req' = Set.filter ((root ==) . constr_obj) req
+>     is' = Set.fromList (cstr <$> is)
+>     cstr (AttrOf a) = Constraint a root
+>     (proj, is) = runWriter . runInhDesc $ desc
+
+All the synthesized attributes accessed from the root are
+ensured by the rules.
+
+> check_syn_ensured ::
+>   SynDesc s -> Grammar -> NonTerminal -> Set Ensure_S -> AG ()
+> check_syn_ensured desc prods root ens
+>   | Set.null missing = return ()
+>   | otherwise = throwError $ Error_SynDesc_Missing missing
+>   where
+>     missing = unionSets (missing_S prods ens) ss'
+>     ss' = Set.map cstr ss
+>     cstr (AttrOf a) = Constraint a root
+>     (proj, ss) = runWriter . runSynDesc $ desc
+
+Check the whole AG
+
+> check ::
+>   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG ()
+> check = undefined
 
 * Local variables for emacs
 Local Variables:
