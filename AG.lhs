@@ -5,18 +5,22 @@ this mode, you should do the following to setup emacs.
 
 - install mmm-mode
 
-: (package install 'mmm-mode)
+  #+BEGIN_SRC elisp
+  (package install 'mmm-mode)
+  #+END_SRC
 
 - add to your .emacs:
 
-(mmm-add-classes
- '((literate-haskell-bird
-    :submode literate-haskell-mode
-    :front "^>"
-    :include-front true
-    :back "^[^>]*$"
-    )
-   ))
+  #+BEGIN_SRC elisp
+  (mmm-add-classes
+   '((literate-haskell-bird
+      :submode literate-haskell-mode
+      :front "^>"
+      :include-front true
+      :back "^[^>]*$"
+      )
+     ))
+  #+END_SRC
 
 Then when loading this file, use `M-x org-mode' followed by
 `M-x mmm-ify-by-class' and enter `literate-haskell-bird'.
@@ -100,6 +104,7 @@ It seems we're doing twice the same thing.
 > import Control.Monad.Except hiding (sequence)
 > import Control.Monad.Writer.Strict hiding (sequence)
 > import Control.Monad.Reader hiding (sequence)
+> import Data.Maybe (fromMaybe)
 > import Data.Dynamic
 > import Data.Function (on)
 > import qualified Data.Set as Set
@@ -124,7 +129,6 @@ http://hackage.haskell.org/package/base-4.9.0.0/docs/GHC-Stack.html
 
 ** Maybe, Either
 
-> fromJust (Just x) = x
 > filterJust xs = [ x | Just x <- xs ]
 > justLeft (Left x) = Just x
 > justLeft _ = Nothing
@@ -476,9 +480,21 @@ attributes.
 > emptyAttrs = Map.empty
 > mergeAttrs :: Op AttrMap
 > mergeAttrs = Map.union
-> lookupAttr :: Typeable a => Attr k a -> AttrMap -> Maybe Dynamic
-> lookupAttr x = Map.lookup (Attribute x)
-> projAttr :: Typeable a => AttrMap -> Attr k a -> Maybe Dynamic
+
+Note: we do an unsafe conversion, because lookupAttr will
+only be called after the AG has been typechecked at runtime.
+
+> lookupAttr :: (Typeable a) => Attr k a -> AttrMap -> Maybe a
+> lookupAttr a m =
+>   (\d -> fromDyn d (err d))
+>   <$> Map.lookup (Attribute a) m
+>   where
+>     err d = error $ "[BUG] lookupAttr: attribute "
+>             ++ show a
+>             ++ ", expected type: " ++ show (typeRep a)
+>             ++ ", runtime type: " ++ show (dynTypeRep d)
+
+> projAttr :: Typeable a => AttrMap -> Attr k a -> Maybe a
 > projAttr = flip lookupAttr
 > (|=>) :: Typeable a => Attr k a -> a -> AttrMap
 > a |=> x = Attribute a |-> toDyn x
@@ -843,25 +859,26 @@ Children attribute
 > (?), chiM :: Typeable a => Child -> Attr S a -> AR (Maybe a)
 > (?) c a = AR $ return $ do
 >   cs <- asks childrenAttrs
->   let md = Map.lookup c cs >>= lookupAttr a
->   return $ fromJust . fromDynamic <$> md
+>   return $ lookupAttr a =<< Map.lookup c cs
+
 > chiM = (?)
 
 Parent attribute
 
 > parM :: Typeable a => Attr I a -> AR (Maybe a)
 > parM a = AR $ return $ do
->  ps <- asks parentAttrs
->  return $ fromJust . fromDynamic <$> lookupAttr a ps
+>  lookupAttr a <$> asks parentAttrs
+>
 
 Terminal attribute
 
 > terM :: Typeable a => Attr T a -> AR (Maybe a)
 > terM a = AR $ return $ do
->   ts <- asks terminalAttrs
->   return $ fromJust . fromDynamic <$> lookupAttr a ts
+>   lookupAttr a <$> asks terminalAttrs
 
-The strict versions are all instances of the following:
+The strict versions are all instances of the following
+function, which adds a constraint before safely forcing the
+evaluation of the attribute.
 
 > strictProj :: Typeable a =>
 >   (Attr k a -> AR (Maybe a)) ->   -- the maybe operation
@@ -870,7 +887,9 @@ The strict versions are all instances of the following:
 > strictProj get require a = AR $ do
 >   require a
 >   rma <- runAR (get a)
->   return (fromJust <$> rma) -- safe coercion after we added the constraint
+>   return (fromMaybe err <$> rma) -- safe coercion after we added the constraint
+>   where
+>     err = error $ "[BUG] strictProj: undefined attribute " ++ show a
 
 > infix 9 !
 > (!), chi :: Typeable a => Child -> Attr S a -> AR a
@@ -1023,8 +1042,7 @@ By hypothesis, we know that the attribute will be defined for them.
 
  > run :: Rule -> Either Error (InputTree -> SemTree)
 
-** Could we run the AG in a typed way?
-
+** Specifying the tree, input and output
 Rather than run the AG on the general tree type.
 
  > type Partial a = Either Error a -- success or failure monad
@@ -1040,33 +1058,39 @@ To specify i and s, we must keep track of the attributes that
 they will be using and build conversion functions
 (i -> AttrMap) and (AttrMap -> s).
 
-`AttrSpec' is a list of attributes with existential
-quantification over the attribute type.
-
-  #+BEGIN_SRC haskell
-type AttrSpec = [Attribute]
-  #+END_SRC
-
-
+*** Synthesized attributes
 For the synthesized attributes the following interface is enough.
-(AttrSpec, InhSpec, SynSpec, Attrs, Attribute are all abstract types)
 
-  #+BEGIN_SRC haskell
-type SynSpec s = Writer AttrSpec (AttrMap -> s)
-instance Applicative SynSpec
-project :: Typeable a => Attr a -> SynSpec a
-  #+END_SRC
+SynDesc is abstract
 
+> newtype SynDesc s = SynDesc (WriterT (Set (AttrOf S)) (Reader AttrMap) s)
+>   deriving (Functor, Applicative)
 
-For inherited attributes, the following interface is enough.
+> project :: Typeable a => Attr S a -> SynDesc a
+> project a = SynDesc $ do
+>   tell (Set.singleton (AttrOf a))
+>   fromMaybe err . lookupAttr a <$> ask
+>  where
+>    err = error $ "[BUG] project: undefined attribute " ++ show a
 
-  #+BEGIN_SRC haskell
-type InhSpec i = Writer AttrSpec (i -> AttrMap)
-embed :: Attr a -> (i -> a) -> InhSpec i
-(#) :: InhSpec i -> InhSpec i -> InhSpec i
-  #+END_SRC
+*** Inherited attributes
+The following interface is enough.
+TODO: add errors when the same attribute is used twice.
 
-example:
+> newtype InhDesc i = InhDesc (Writer ([AttrOf I]) (i -> AttrMap))
+> embed :: Typeable a =>
+>   Attr I a -> (i -> a) -> InhDesc i
+> embed a p = InhDesc $ do
+>   tell [AttrOf a]
+>   return $ Map.singleton (Attribute a) . toDyn . p
+ 
+> (#) :: InhDesc i -> InhDesc i -> InhDesc i
+> InhDesc x # InhDesc y =
+>   InhDesc $ liftA2 union x y
+>  where
+>    union f g = \i -> Map.union (f i) (g i)
+
+*** Example
 
   #+BEGIN_SRC haskell
 data I = I { a :: Int, b :: Bool }
@@ -1077,96 +1101,9 @@ flag :: Attr Bool
 output :: Attr String
 speed :: Attr Float
 
-specI = embed count a # embed flag b :: InhSpec I
-specS = S <$> project output <*> project speed :: SynSpec S
+specI = embed count a # embed flag b :: InhDesc I
+specS = S <$> project output <*> project speed :: SynDesc S
   #+END_SRC
-
-Specifying that the tree corresponds to the grammar and how
-it is mapped is very hard.  In the general case we use a GADT
-to capture the context free grammar.  We must check that the
-tree type is a subset of the context free grammar.  That for
-each constructor of the tree there is a corresponding
-production and that the children match.
-
-In the simple case when there is only one non-terminal, we
-need to tell which production corresponds to which
-constructor, and at the same time which of the children of the constructor are:
-
-  #+BEGIN_SRC haskell
-deconstruct :: t -> ([t], Production)
-  #+END_SRC
-
-
-We need to collect the list of all possible productions in
-the range of `deconstruct'.  But we cannot evaluate
-deconstruct. (we would need to evaluate it for an infinite
-number of input in order to collect the range).
-Can we use the type system to constrain the range of deconstruct?
-
-If we accept to build deconstruct by gluing partial pieces,
-putting the responsability of termination in the users hand,
-then we can proceed as follows:
-
- > type Constr t = t -> Maybe (Production, [t])
- > type TreeSpec t = Writer [Production] [Constr t]
- > instance Monoid TreeSpec
- > constr = Production -> (t -> Maybe [t]) -> TreeSpec t
- > glue :: [Constr t] -> t -> Tree
-
-Example
-
- > node :: Production
- > leaf :: Production
-
- > nodeC (Node l r) = Just ([l,r])
- > nodeC _ = Nothing
-
- > leafC (Leaf x) = Just []
- > leafC _ = Nothing
-
- > treeC :: Constr t
- > treeC = constr node nodeC <|> constr leaf leafC
-
-Now we didn't consider terminals. Terminals are embedded as
-attributes of Val nodes in the tree. This again requires us
-to check that the attributes are compatible with the
-rules. We reuse the InhSpec type that specifies functions of
-type `i -> AttrMap`.
-
- > type Constr t = t -> Maybe (Production, [t], AttrMap)
- > type TreeSpec t = Writer ([Production],[Attribute]) [Constr t]
- > instance Monoid TreeSpec
- > constr = Production -> InhSpec i -> (t -> Maybe ([t], i)) -> TreeSpec t
- > glue :: [Constr t] -> t -> Tree
-
-Now in order to constrain the number of children for each
-production, we can use a vector type, so the combination of
-static check and runtime typechecking ensures that we will
-always be constructing valid production.
-
- > constr = Production -> Nat n -> InhSpec i -> (t -> Maybe (Vec n t, i)) -> TreeSpec t
-
-The function (nat :: Nat n -> Int) allows us to check that
-the vector has the same number of elements as the
-production's children.
-
-The last generalisation that we want is map families of
-recursive types to a context free grammar. This involves
-using GADTs. Now to capture the list of children, we not only
-need their number, but their type. Thus we use a heterogenous
-list indexed by the type level list of the element's types.
-
- > data HList t ks where
- >   HNil :: HList '[]
- >   HCons :: t k -> HList t ks -> HList (k ': ks)
-
-We must capture what a type level list is, in order to compute its length.
-
- > data TList ks where
- >   TNil :: TList '[]
- >   TCons :: Proxy k -> TList ks -> TList (k ': ks)
-
- > constr = Production -> TList ks -> InhSpec i -> (t k -> Maybe (HList t ks, i)) -> TreeSpec t
 
 ** Concrete tree specification
 
@@ -1297,3 +1234,12 @@ TODO:
 >   GramDesc $ Map.insert (ntDescNt n) match ns
 >  where match x = ntDescMatch n $ fromDyn x err
 >        err = error "insertNT: assert false"
+
+* Local variables for emacs
+Local Variables:
+mode: org
+eval: (org-indent-mode -1)
+eval: (mmm-ify-by-class 'literate-haskell-bird)
+eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
+compile-command: "ghc AG"
+End:
