@@ -104,7 +104,7 @@ mtl-2.2.1
 > import qualified Data.Map as Map
 > import Data.Map (Map)
 > import Data.Traversable
-> import Data.Foldable (foldMap, all)
+> import Data.Foldable (foldMap, all, traverse_)
 > import GHC.Stack -- callstacks
 > import Unknown
 
@@ -171,6 +171,10 @@ Set operations
 > unionSets :: Ord b => (a -> Set b) -> Set a -> Set b
 > unionSets = foldMap
 
+> symmetric op a b = (a `op` b, b `op` a)
+> symdiff :: Ord a => Set a -> Set a -> (Set a, Set a)
+> symdiff = symmetric Set.difference
+
 ** Dynamics
 
 > toDynP :: Typeable a => proxy a -> a -> Dynamic
@@ -188,13 +192,12 @@ of the tree).
 We start by defining a general tree type. The tree is parameterised with
 node labels, which are simply the production in the case of the input tree,
 but can also be paired with attributes in the case of a decorated tree.
-The `AttrMap' field introduces the non-terminal data.
+The `AttrMap' field introduces the terminal data.
 
 > data Tree n = Node n (Child :-> Tree n) AttrMap
 >             deriving Show
 > type InputTree = Tree Production
 > type DecoratedTree = Tree (Production, AttrMap)
-
 
 ** Grammar basic blocks
 *** Names
@@ -353,7 +356,7 @@ It doesn't need to be abstract.
 > type Grammar = Set Production
 
 Some values are not valid grammars: we must check that the
-orphans and terminals have unique names for each production.
+orphans have unique names for each production.
 
 > valid_grammar :: Grammar -> Bool
 > valid_grammar = all valid_production
@@ -361,8 +364,6 @@ orphans and terminals have unique names for each production.
 Children of a production must have unique names.
 Note: if two terminals have the same name but different types
 then they are different: only their names are overloaded.
-
-TODO: explicit error (which ones are duplicated?)
 
 > valid_production :: Production -> Bool
 > valid_production p = is_set cs
@@ -430,6 +431,9 @@ TODO: explicit error (which ones are duplicated?)
 > data Attribute where
 >   Attribute :: Typeable a => Attr k a -> Attribute
 
+> forget_kind :: AttrOf k -> Attribute
+> forget_kind (AttrOf a) = Attribute a
+
 **** Eq, Ord
 WARNING: what if two attributes with the same name and
 different types are used? If we consider them equal then the
@@ -474,7 +478,6 @@ attributes by their types.
 
 > instance Show (AttrOf k) where
 >   show (AttrOf x) = show x
-
 
 *** Attributions
 An attribution is a finite map from attribute name to values.
@@ -541,150 +544,6 @@ empty.
 >   Family (mergeAttrs x y)
 >          (mergeChildrenAttrs xs ys)
 >          (mergeAttrs a b)
-
-* Rules and aspects
-** A and R monads
-An attribute grammar is given by a context free grammars and
-attribution rules.
-
- > type AG = (Grammar, Rule)
-
-In order to check that the rules are compatible with a
-grammar, we must collect information about the rules:
-
-Which attributes are used and with which type from the
-parent, the children, or the terminal data..
-
-To capture this information we will use monads.
-
-In order to gather information from the use of input family, we
-must define rule in a specific monad in which the input family
-is accessed through primitives.
-
-> newtype R a = R {runR :: Reader Family a} -- the rule monad
->   deriving (Functor, Applicative, Monad, MonadReader Family)
-
-In order to compute rules, we must first check that they are
-valid.  Rules are defined in the context of a production, and
-may fail if some constraints are not met, like using a child
-that is not a valid child of the current production. Or an
-attribute with the wrong type.
-And lastly, we collect constraints.
-
-> newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the aspect monad
->   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError Error, MonadWriter Context)
-
-private
-
-> runA :: A a -> Production -> (AG a, Context)
-> runA (A a) p =
->   ag . runWriter . runExceptT $ runReaderT a p
->   where
->     ag (e, c) = (except e, c)
-
-> current_production :: A Production
-> current_production = ask
-
-** AR applicative
-
-> newtype AR a = AR {runAR :: A (R a)}
->
-> instance Applicative AR where
->   pure x = AR (pure (pure x))
->   AR f <*> AR x = AR ((<*>) <$> f <*> x)
-> instance Functor AR where
->   fmap f x = pure f <*> x
-
-Most operations for the user are in AR which is not a monad
-but an Applicative. Some of them are in the A monad (and none
-are in R). In order to use them, we should use the following
-specialised bind and join operators.
-
-> joinAR :: A (AR a) -> AR a
-> joinAR x = AR $ join (runAR <$> x)
-
-> bindAR :: A a -> (a -> AR b) -> AR b
-> bindAR x f = joinAR (f <$> x)
-
-> bindAR_ :: A () -> AR a -> AR a
-> bindAR_ x y = x `bindAR` const y
-
-A rule takes an inherited attribution for the parents, and
-synthesized attributions for the children and compute a
-synthesized attribution for the parents and inherited
-attributions for the children.
-
-** Rule
-Rule is abstract, only operations are the monoid, and
-computing the context.
-
-> type PureRule = Family -> Family
-> type Rule = AR Family
-
-> emptyRule :: Rule
-> emptyRule = pure emptyFam
-
-> mergeRule :: Op Rule
-> mergeRule = liftA2 mergeFam
-
-** Aspect
-
-> type PureAspect = Production :-> PureRule
-> newtype Aspect = Aspect (Production :-> Rule)
-> inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
-> emptyAspect = Aspect $ Map.empty
-> mergeAspect :: Op Aspect
-> mergeAspect = inAspect2 $ Map.unionWith mergeRule
-> (&) = mergeAspect
-
-> instance Monoid Aspect where
->   mempty = emptyAspect
->   mappend = mergeAspect
-
-> concatAspects :: [Aspect] -> Aspect
-> concatAspects = mconcat
-
-`runAspect` is private. Note: the production in the readerT
-is not used for rules.  Because when we build rules we always
-override the production with a call to `local' (see the code
-of `inh' and `syn').
-
-> runAspect :: Aspect -> (AG PureAspect, Context)
-> runAspect (Aspect asp) = runA asp_a err
->  where
->    asp_ar = traverse runAR  asp -- A (Production :-> R Family)
->    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
->    err = error "[BUG] runAspect: unexpected use of production."
-
-> context :: Aspect -> Context
-> context = snd . runAspect
-
-* Error datatype
-
-> data Error
->   = Error_Rule_Invalid_Child Child Production
->   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
->   | Error_InhDesc_Duplicate [AttrOf I] -- raised when checking InhDesc
->   | Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
->   | Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
->   | Error_ProdDesc_Duplicate_Children [Child] Production
->   | Error_ProdDesc_Invalid_Children (Set Child) Production
->   | Error_ProdDesc_Missing_Children (Set Child) Production
->   | Error_ProdDesc_Duplicate_Terminals [AttrOf T]
->   | Error_ProdDesc_Invalid_Terminals (Set (AttrOf T)) Production
->   | Error_ProdDesc_Missing_Terminals (Set (AttrOf T)) Production
->   | Error_NtDesc_Duplicate_Productions [Production] NonTerminal
->   | Error_NtDesc_Invalid_Productions (Set Production) NonTerminal
->   | Error_GramDesc_Duplicate NonTerminal
->   | Error_GramDesc_Missing (Set NonTerminal)
->   | Error_GramDesc_Wrong_Types (Set Child)
->   | Error_Missing Missing
->   deriving Show
-
- - `Error_Rule_Invalid_Child c p' ::
-     When child `c' was used in the context of the production
-     `p` which doesn't list this child. This error coms from
-     a rule that projects attribute from a wrong child.
 
 * Contexts, Constraints
 
@@ -883,6 +742,155 @@ Generate errors if the child is not valid in the current production.
 > require_terminal a = tell_parent $ \p ->
 >   emptyCtx { require_T = cstr a p }
 
+* Rules and aspects
+** A and R monads
+An attribute grammar is given by a context free grammars and
+attribution rules.
+
+ > type AG = (Grammar, Rule)
+
+In order to check that the rules are compatible with a
+grammar, we must collect information about the rules:
+
+Which attributes are used and with which type from the
+parent, the children, or the terminal data..
+
+To capture this information we will use monads.
+
+In order to gather information from the use of input family, we
+must define rule in a specific monad in which the input family
+is accessed through primitives.
+
+> newtype R a = R {runR :: Reader Family a} -- the rule monad
+>   deriving (Functor, Applicative, Monad, MonadReader Family)
+
+In order to compute rules, we must first check that they are
+valid.  Rules are defined in the context of a production, and
+may fail if some constraints are not met, like using a child
+that is not a valid child of the current production. Or an
+attribute with the wrong type.
+And lastly, we collect constraints.
+
+> newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the aspect monad
+>   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError Error, MonadWriter Context)
+
+private
+
+> runA :: A a -> Production -> (AG a, Context)
+> runA (A a) p =
+>   ag . runWriter . runExceptT $ runReaderT a p
+>   where
+>     ag (e, c) = (except e, c)
+
+> current_production :: A Production
+> current_production = ask
+
+** AR applicative
+
+> newtype AR a = AR {runAR :: A (R a)}
+>
+> instance Applicative AR where
+>   pure x = AR (pure (pure x))
+>   AR f <*> AR x = AR ((<*>) <$> f <*> x)
+> instance Functor AR where
+>   fmap f x = pure f <*> x
+
+Most operations for the user are in AR which is not a monad
+but an Applicative. Some of them are in the A monad (and none
+are in R). In order to use them, we should use the following
+specialised bind and join operators.
+
+> joinAR :: A (AR a) -> AR a
+> joinAR x = AR $ join (runAR <$> x)
+
+> bindAR :: A a -> (a -> AR b) -> AR b
+> bindAR x f = joinAR (f <$> x)
+
+> bindAR_ :: A () -> AR a -> AR a
+> bindAR_ x y = x `bindAR` const y
+
+A rule takes an inherited attribution for the parents, and
+synthesized attributions for the children and compute a
+synthesized attribution for the parents and inherited
+attributions for the children.
+
+** Rule
+Rule is abstract, only operations are the monoid, and
+computing the context.
+
+> type PureRule = Family -> Family
+> type Rule = AR Family
+
+> emptyRule :: Rule
+> emptyRule = pure emptyFam
+
+> mergeRule :: Op Rule
+> mergeRule = liftA2 mergeFam
+
+** Aspect
+
+> type PureAspect = Production :-> PureRule
+> newtype Aspect = Aspect (Production :-> Rule)
+> inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
+> emptyAspect = Aspect $ Map.empty
+> mergeAspect :: Op Aspect
+> mergeAspect = inAspect2 $ Map.unionWith mergeRule
+> (&) = mergeAspect
+
+> instance Monoid Aspect where
+>   mempty = emptyAspect
+>   mappend = mergeAspect
+
+> concatAspects :: [Aspect] -> Aspect
+> concatAspects = mconcat
+
+`runAspect` is private. Note: the production in the readerT
+is not used for rules.  Because when we build rules we always
+override the production with a call to `local' (see the code
+of `inh' and `syn').
+
+> runAspect :: Aspect -> (AG PureAspect, Context)
+> runAspect (Aspect asp) = runA asp_a err
+>  where
+>    asp_ar = traverse runAR  asp -- A (Production :-> R Family)
+>    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
+>    err = error "[BUG] runAspect: unexpected use of production."
+
+> context :: Aspect -> Context
+> context = snd . runAspect
+
+* Error datatype
+
+> data Error
+>   = Error_Rule_Invalid_Child Child Production
+>   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
+>   | Error_InhDesc_Duplicate [AttrOf I] -- raised when checking InhDesc
+>   | Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
+>   | Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
+>   | Error_ProdDesc_Duplicate_Children [Child] Production
+>   | Error_ProdDesc_Invalid_Children (Set Child) Production
+>   | Error_ProdDesc_Missing_Children (Set Child) Production
+>   | Error_ProdDesc_Duplicate_Terminals [AttrOf T]
+>   | Error_ProdDesc_Invalid_Terminals (Set (AttrOf T)) Production
+>   | Error_ProdDesc_Missing_Terminals (Set (AttrOf T)) Production
+>   | Error_NtDesc_Duplicate_Productions [Production] NonTerminal
+>   | Error_NtDesc_Invalid_Productions (Set Production) NonTerminal
+>   | Error_GramDesc_Duplicate NonTerminal
+>   | Error_GramDesc_Missing (Set NonTerminal)
+>   | Error_GramDesc_Wrong_Types (Set Child)
+>   | Error_Production_Duplicate_Children_Names [Name] Production
+>   | Error_Missing Missing
+>   | Error_Tree_Invalid_Children (Set Child)
+>   | Error_Tree_Missing_Children (Set Child)
+>   | Error_Tree_Invalid_Terminals (Set Attribute)
+>   | Error_Tree_Missing_Terminals (Set Attribute)
+>   deriving Show
+
+ - `Error_Rule_Invalid_Child c p' ::
+     When child `c' was used in the context of the production
+     `p` which doesn't list this child. This error coms from
+     a rule that projects attribute from a wrong child.
+
 * Rule and Aspect primitives
 Rules are defined in an applicative `AR', that comes with
 primitives to project attributes from either the parent, a
@@ -955,7 +963,6 @@ evaluation of the attribute.
 >     return $ fam' <$> rule'
 >   where
 >     fam' x = fam (Attribute attr |-> toDyn x)
-
 
 Inherited attributes are defined for a specific child of a
 production.  The production is determined by the Child.
@@ -1058,13 +1065,7 @@ By hypothesis, we know that the attribute will be defined for them.
 * Running the grammar
 ** Specifying input and output
 Rather than run the AG on the general tree type.
-
- > type Partial a = Either Error a -- success or failure monad
-
- > check :: spec t i s -> Rule -> Partial (AG t i s)
- > run :: AG t i s -> t -> i -> s
-
-we must build (total) conversions between
+We must build (total) conversions between
 - t and the tree type,
 - i,s and the AttrMap type.
 
@@ -1099,7 +1100,6 @@ SynDesc is abstract
 
 > proj_S :: SynDesc s -> AttrMap -> s
 > proj_S = fst . runWriter . runSynDesc
-
 
 *** Inherited attributes
 Describing the root's inherited attribute and the terminals
@@ -1255,15 +1255,15 @@ them.
 >     (term_proj, term_attrs) = runWriter . runTermDesc $ ts
 >     -- Checking children
 >     duplicate_children = duplicates cs
->     invalid_children = cs `diff` prod_children prod
->     missing_children = prod_children prod `diff` cs
+>     ( invalid_children
+>      , missing_children) = symmetric diff cs (prod_children prod)
 >     cs = childDesc_child <$> cds
 >     diff = Set.difference `on` Set.fromList
 >     -- Checking terminals
 >     prod_terms = prod_terminals prod
 >     terms = Set.fromList term_attrs
->     invalid_terminals = Set.difference terms prod_terms
->     missing_terminals = Set.difference prod_terms terms
+>     ( invalid_terminals
+>      , missing_terminals) = symdiff terms prod_terms
 
 `check_attr_unique' is private, but used by `check_inh_unique' and
 `prodDesc'.
@@ -1438,11 +1438,26 @@ with the typeRep associated with each `childDesc'.
 >    wrong_types = Map.filterWithKey wrong_type types
 >    wrong_type c t = fst (gram ! child_nt c) /= t -- well-defined if Set.null missing
 
-> check_grammar ::
+> check_missing ::
 >   Missing -> AG ()
-> check_grammar missing
+> check_missing missing
 >   | not (nullMissing missing) = throwError $ Error_Missing missing
 >   | otherwise = return ()
+
+We check that the children have unique names for each production.
+
+> check_grammar ::
+>   Grammar -> AG ()
+> check_grammar = traverse_ check_production
+
+> check_production ::
+>   Production -> AG ()
+> check_production prod
+>   | not (null dup) =
+>       throwError $ Error_Production_Duplicate_Children_Names dup prod
+>   | otherwise = return ()
+>   where
+>     dup = duplicates (fst <$> prod_orphans prod)
 
 Check the whole AG.
 
@@ -1450,9 +1465,10 @@ Check the whole AG.
 >   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (NonTerminal, PureAspect, Coalg)
 > check g i s r = do
 >   (root, grammar, gmap) <- check_gramDesc g
+>   check_grammar grammar
 >   let (check_aspect, ctx) = runAspect r
 >   pure_asp <- check_aspect
->   check_grammar (missing grammar ctx)
+>   check_missing (missing grammar ctx)
 >   check_inh_unique i
 >   check_inh_required i root (require_I ctx)
 >   check_syn_ensured s grammar root (ensure_S ctx)
@@ -1467,6 +1483,34 @@ Check the whole AG.
 
 > coalg :: GramMap -> Coalg
 > coalg = Map.map snd
+
+** Checking a tree
+
+Before we can execute an AG on a general tree, we must see if
+the tree is compatible with the grammar.
+
+> tree_gram :: InputTree -> AG Grammar
+> tree_gram (Node prod cs ts)
+>   | not (Set.null invalid_children) =
+>       throwError $ Error_Tree_Invalid_Children invalid_children
+>   | not (Set.null missing_children) =
+>       throwError $ Error_Tree_Missing_Children missing_children
+>   | not (Set.null invalid_terminals) =
+>       throwError $ Error_Tree_Invalid_Terminals invalid_terminals
+>   | not (Set.null missing_terminals) =
+>       throwError $ Error_Tree_Missing_Terminals missing_terminals
+>   | otherwise =
+>       Map.foldr (\t ag_g -> liftM2 Set.union ag_g (tree_gram t))
+>                 (return (Set.singleton prod)) cs
+>   where
+>     children = Map.keysSet cs
+>     prod_cs = Set.fromList (prod_children prod)
+>     ( invalid_children
+>      , missing_children) = children `symdiff` prod_cs
+>     terminals = Map.keysSet ts
+>     prod_ts = Set.map forget_kind $ prod_terminals prod
+>     ( invalid_terminals
+>      , missing_terminals) = terminals `symdiff` prod_ts
 
 ** Semantics
 
@@ -1513,7 +1557,7 @@ this mode, you should do the following to setup emacs.
 - install mmm-mode
 
   #+BEGIN_SRC elisp
-  (package install 'mmm-mode)
+  (package-install 'mmm-mode)
   #+END_SRC
 
 - add to your .emacs:
