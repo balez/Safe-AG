@@ -1,4 +1,6 @@
 * Overview
+This file is licensed under GPL v3.
+
 EDSL for attribute grammars in Haskell.
 
 This library defines first-class attribute grammars
@@ -613,45 +615,21 @@ synthesized attribution for the parents and inherited
 attributions for the children.
 
 ** Rule
-Rule is abstract, only operations are the monoid, and computing the context.
+Rule is abstract, only operations are the monoid, and
+computing the context.
 
-> newtype Rule = Rule {unRule :: AR Family}
-> inRule2 f (Rule x) (Rule y) = Rule (f x y)
+> type PureRule = Family -> Family
+> type Rule = AR Family
 
 > emptyRule :: Rule
-> emptyRule = Rule $ pure emptyFam
+> emptyRule = pure emptyFam
 
 > mergeRule :: Op Rule
-> mergeRule = inRule2 $ liftA2 mergeFam
-
-> instance Monoid Rule where
->   mempty = emptyRule
->   mappend = mergeRule
-
-> concatRules :: [Rule] -> Rule
-> concatRules = mconcat
-
-`runRule` is PRIVATE
-
-> type FamRule = Family -> Family
-
-> runRule :: Rule -> (AG FamRule, Context)
-> runRule (Rule (AR a)) = runA b p
->   where b = liftM (runReader . runR) a
->         p = error "[BUG] runRule: unexpected use of production."
-
-Note: the production in the readerT is not used for rules.
-Because when we build rules we always override the production with
-a call to `local' (see the code of `inh' and `syn').
-
-> context_rule :: Rule -> Context
-> context_rule = snd . runRule
-
-> check_rule :: Rule -> Maybe Error
-> check_rule = justLeft . runExcept . fst . runRule
+> mergeRule = liftA2 mergeFam
 
 ** Aspect
 
+> type PureAspect = Production :-> PureRule
 > newtype Aspect = Aspect (Production :-> Rule)
 > inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
 > emptyAspect = Aspect $ Map.empty
@@ -666,11 +644,16 @@ a call to `local' (see the code of `inh' and `syn').
 > concatAspects :: [Aspect] -> Aspect
 > concatAspects = mconcat
 
-> runAspect :: Aspect -> (AG (Production :-> FamRule), Context)
+`runAspect` is private. Note: the production in the readerT
+is not used for rules.  Because when we build rules we always
+override the production with a call to `local' (see the code
+of `inh' and `syn').
+
+> runAspect :: Aspect -> (AG PureAspect, Context)
 > runAspect (Aspect asp) = runA asp_a err
 >  where
->    asp_ar = traverse (runAR . unRule)  asp -- A (Production :-> R Family)
->    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A (Production :-> FamRule)
+>    asp_ar = traverse runAR  asp -- A (Production :-> R Family)
+>    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
 >    err = error "[BUG] runAspect: unexpected use of production."
 
 > context :: Aspect -> Context
@@ -900,7 +883,7 @@ Generate errors if the child is not valid in the current production.
 > require_terminal a = tell_parent $ \p ->
 >   emptyCtx { require_T = cstr a p }
 
-* Rule primitives
+* Rule and Aspect primitives
 Rules are defined in an applicative `AR', that comes with
 primitives to project attributes from either the parent, a
 child of the production or the terminal child.  Those
@@ -967,7 +950,7 @@ evaluation of the attribute.
 >   (AttrMap -> Family) ->
 >   AR a -> Aspect
 > build_aspect attr production constraint fam rule =
->   Aspect $ Map.singleton production $ Rule $ AR $ do
+>   Aspect $ Map.singleton production $ AR $ do
 >     rule' <- local (const production) (constraint >> runAR rule)
 >     return $ fam' <$> rule'
 >   where
@@ -1464,22 +1447,22 @@ with the typeRep associated with each `childDesc'.
 Check the whole AG.
 
 > check ::
->   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (NonTerminal, Production :-> FamRule, Coalg)
+>   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (NonTerminal, PureAspect, Coalg)
 > check g i s r = do
 >   (root, grammar, gmap) <- check_gramDesc g
 >   let (check_aspect, ctx) = runAspect r
->   asp <- check_aspect
+>   pure_asp <- check_aspect
 >   check_grammar (missing grammar ctx)
 >   check_inh_unique i
 >   check_inh_required i root (require_I ctx)
 >   check_syn_ensured s grammar root (ensure_S ctx)
->   return (root, asp, coalg gmap)
+>   return (root, pure_asp, coalg gmap)
 
 > run :: Typeable t =>
 >   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (t -> i -> s)
 > run g i s a = do
->   (root, asp, coalg) <- check g i s a
->   let sem = sem_coalg (Map.map sem_prod asp) coalg root . toDynP g
+>   (root, pure_asp, coalg) <- check g i s a
+>   let sem = sem_coalg (Map.map sem_prod pure_asp) coalg root . toDynP g
 >   return $ \x -> proj_S s . sem x . proj_I i
 
 > coalg :: GramMap -> Coalg
@@ -1491,13 +1474,13 @@ Check the whole AG.
 
 > type SemProd = Child :-> SemTree -> AttrMap -> SemTree
 
-> sem_prod :: FamRule -> SemProd
+> sem_prod :: PureRule -> SemProd
 > sem_prod rule forest terminals inh = syn
 >   where
 >     Family syn inh_children _ = rule $ Family inh syn_children terminals
 >     syn_children = forest `applyMap` inh_children
 
-> unsafe_run :: Production :-> FamRule -> InputTree -> SemTree
+> unsafe_run :: PureAspect -> InputTree -> SemTree
 > unsafe_run = sem_tree . Map.map sem_prod
 
 `sem_tree' computes the iteration of the algebra.
