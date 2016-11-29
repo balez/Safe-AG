@@ -795,26 +795,12 @@ private
 > instance Functor AR where
 >   fmap f x = pure f <*> x
 
-Most operations for the user are in AR which is not a monad
-but an Applicative. Some of them are in the A monad (and none
-are in R). In order to use them, we should use the following
-specialised bind and join operators.
-
-> joinAR :: A (AR a) -> AR a
-> joinAR x = AR $ join (runAR <$> x)
-
-> bindAR :: A a -> (a -> AR b) -> AR b
-> bindAR x f = joinAR (f <$> x)
-
-> bindAR_ :: A () -> AR a -> AR a
-> bindAR_ x y = x `bindAR` const y
-
+** Rule
 A rule takes an inherited attribution for the parents, and
 synthesized attributions for the children and compute a
 synthesized attribution for the parents and inherited
 attributions for the children.
 
-** Rule
 Rule is abstract, only operations are the monoid, and
 computing the context.
 
@@ -986,24 +972,6 @@ Synthesized attributes are defined for the parent of a production.
 
 > syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Aspect
 > syns a = foldl (\rs (p,r) -> rs & syn a p r) emptyAspect
-
-* Other primitives (access context)
-TODO: I'm wondering if those primitives are useful.
-
-The current production
-
-> prod :: A Production
-> prod = ask
-
-The children of the current production
-
-> children :: A Children
-> children = asks prod_children
-
-The parent non-terminal of the current production
-
-> parent :: A NonTerminal
-> parent = asks prod_nt
 
 * Generic rules
 
