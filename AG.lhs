@@ -765,7 +765,7 @@ private
 > runA (A a) p =
 >   ag . runWriter . runExceptT $ runReaderT a p
 >   where
->     ag (e, c) = (except e, c)
+>     ag (e, c) = (AG (except e), c)
 
 > current_production :: A Production
 > current_production = ask
@@ -855,7 +855,7 @@ of `inh' and `syn').
 >   | Error_Tree_Missing_Children (Set Child)
 >   | Error_Tree_Invalid_Terminals (AttrSet T)
 >   | Error_Tree_Missing_Terminals (AttrSet T)
->   | Error_InhAttrs_Missing (Set Require_I)
+>   | Error_RunTree_Missing (Set Require_I)
 >   deriving Show
 
  - `Error_Rule_Invalid_Child c p' ::
@@ -1045,22 +1045,6 @@ the same non-terminal as the parent.
 > chainP :: Typeable a =>
 >   Attr I a -> Attr S a -> Production -> Aspect
 > chainP i s p = chainNs i s p [prod_nt p]
-
-This one doesn't work because the children are in AR.
-
- > chainPM :: Typeable a =>
- >   Attr I a -> Attr S a -> Production -> Aspect
- > chainPM i s p =
- >   inhs i inh_rule
- >   & syn s p syn_rule
- >  where
- >    cxs = filterJust <$> traverse (tag_with_syn s) $ prod_children p
- >    tag_with_syn s c = (\x -> (c,x)) <$> c?s
- >    filterJust cmxs = [(c,x) | (c, Just x) <- cmxs]
- >    inh_rule = liftA2 (\cxs pi -> let (cs, xs) = unzip cxs in
- >                        zip cs (pi : init xs)
- >                      ) cxs (par i)
- >    syn_rule = (snd . last) <$> cxs
 
 * Running the grammar
 ** Specifying input and output
@@ -1372,10 +1356,11 @@ Private
 
 The AG monad
 
-> type AG = Except Error
+> newtype AG a = AG (Except Error a)
+>   deriving (Functor, Applicative, Monad, MonadError Error)
 
 > runAG :: AG a -> Either Error a
-> runAG = runExcept
+> runAG (AG m) = runExcept m
 
 Unique attributes
 
@@ -1389,15 +1374,11 @@ the root.
 
 > check_inh_required ::
 >   InhDesc i -> NonTerminal -> Set Require_I -> AG ()
-> check_inh_required desc root req
->   | Set.null missing = return ()
->   | otherwise = throwError $ Error_InhDesc_Missing missing
+> check_inh_required =
+>   check_attrs Error_InhDesc_Missing . inhAttrs
 >   where
->     missing = Set.difference req' is'
->     req' = Set.filter ((root ==) . constr_obj) req
->     is' = Set.fromList (cstr <$> is)
->     cstr (Attribute a) = Constraint a root
->     (proj, is) = runWriter . runInhDesc $ desc
+>     inhAttrs = Set.fromList . snd . runWriter . runInhDesc
+
 
 All the synthesized attributes accessed from the root are
 ensured by the rules.
@@ -1518,16 +1499,30 @@ When we run the general tree we must provide a map for
 inherited attributes. We check that all the required
 attributes are defined.
 
- > check_attrs :: Set Attribute  -> NonTerminal -> Set Require_I -> AG ()
- > check_attrs attrs root req
- >   | Set.null missing = return ()
- >   | otherwise = throwError $ Error_InhAttrs_Missing missing
- >   where
- >     missing = Set.difference req' attrs'
- >     req' = Set.filter ((root ==) . constr_obj) req
- >     attrs' = cstr <$> attrs
- >     cstr a = Constraint a root
+> check_attrs ::
+>   (Set Require_I -> Error) ->
+>   AttrSet I  -> NonTerminal -> Set Require_I -> AG ()
+> check_attrs err attrs root req
+>   | Set.null missing = return ()
+>   | otherwise = throwError $ err missing
+>   where
+>     missing = Set.difference req' attrs'
+>     req' = Set.filter ((root ==) . constr_obj) req
+>     attrs' = cstr `Set.map` attrs
+>     cstr (Attribute a) = Constraint a root
 
+** Running an AG on a general tree
+
+> runTree ::
+>   Aspect -> NonTerminal -> InputTree -> AttrMap I -> AG (AttrMap S)
+> runTree aspect root tree inhattrs = do
+>   gram <- tree_gram tree
+>   check_grammar gram
+>   let (check_aspect, ctx) = runAspect aspect
+>   pure_asp <- check_aspect
+>   check_missing (missing gram ctx)
+>   check_attrs Error_RunTree_Missing (Map.keysSet inhattrs) root (require_I ctx)
+>   return $ unsafe_run pure_asp tree inhattrs
 
 ** Semantics
 

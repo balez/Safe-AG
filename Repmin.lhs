@@ -151,6 +151,8 @@ must be given last.
 >   Left err -> print err
 >   Right f -> print $ f x
 
+> repminTree = runTreeAG repminR ntree
+
 ** List of the leaves
 
 > tailf = attr "tail" I (pList pInt)
@@ -194,6 +196,8 @@ Trying the error system
 >   Left err -> print err
 >   Right f -> print $ f x
 
+> flattenTree = runTreeAG flattenR flat
+
 * Main
 
 > main = do
@@ -214,6 +218,12 @@ Trying the error system
 >   where s x = Node start (startTree |-> x) emptyAttrs
 >         x * y = Node fork (leftTree |-> x \/ rightTree |-> y) emptyAttrs
 >         l x = Node leaf Map.empty (val |=> x)
+
+* Testing the general trees
+
+> runTreeAG ag attr x = case runAG $ runTree ag root x Map.empty of
+>   Left err -> print err
+>   Right s -> print $ s `projAttr` attr
 
 * Local variables for emacs
 Local Variables:
