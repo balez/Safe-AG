@@ -1334,6 +1334,9 @@ The AG monad
 
 > type AG = Except Error
 
+> runAG :: AG a -> Either Error a
+> runAG = runExcept
+
 Unique attributes
 
 > check_inh_unique ::

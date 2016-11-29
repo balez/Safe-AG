@@ -79,7 +79,7 @@ The same grammar is written as follows:
   them to a concrete type, this will allow
   us to run AG safely.
 
-> btreeDesc = ntDesc root
+> rootDesc = ntDesc root
 >    [ prodDesc start
 >        [ childDesc startTree startTreeProj ]
 >        emptyAttrDesc
@@ -115,7 +115,7 @@ The same grammar is written as follows:
 
 * Grammar
 
-> btreeG = Set.fromList [start,fork,leaf]
+> rootG = Set.fromList [start,fork,leaf]
 
 * Rules
 
@@ -129,8 +129,7 @@ must be given last.
 
 > locminR = syns locmin
 >           [ leaf |- ter val
->           , start |- startTree!locmin
->           , fork |- startTree!locmin]
+>           , start |- startTree!locmin]
 >   & collectAll locmin minimum fork
 
 > ntreeR = syns ntree
@@ -180,7 +179,16 @@ Trying the error system
 
 * Input Tree
 
-> example = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
+> exampleTree = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
 >   where s x = Node start (startTree |-> x) emptyAttrs
 >         x * y = Node fork (leftTree |-> x \/ rightTree |-> y) emptyAttrs
 >         l x = Node leaf Map.empty (val |=> x)
+
+> example = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
+>   where s = Start
+>         (*) = Fork
+>         l = Leaf
+
+* Running
+
+> repminAG = run rootDesc repminI repminS repminR
