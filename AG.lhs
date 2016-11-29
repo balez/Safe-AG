@@ -1,5 +1,4 @@
 * overview
-
 EDSL for attribute grammars in Haskell inspired by De Moor's
 design.  With runtime typechecking. It is the dynamic version
 of the AG a la carte design.  Runtime typechecking is to be
@@ -25,16 +24,15 @@ that writes constraints and that read the input of the rules
 the writer must come before the reader. This means we do not
 have access to the input types.
 
+** Dependencies
+ghc-8.0.1
+mtl-2.2.1
+
 ** TODO
-- errors when building prodDesc
-- add locations to errors when building rules
-- checking the tree shape
-- running the attribute grammar
-- (for later) Indexed Tree with phantom variables to reflect the nt, prod, children.
-- remove GADTs option unless necessary
-** Discussion
-*** grammar definition / datatype description
-It seems we're doing twice the same thing.
+- Add locations to errors
+- Remove GADTs option unless necessary
+- Template haskell to generate grammar, bindings, gramDesc
+- Reorganise source code for a better presentation (easier to read an understand).
 
 * Header
 ** GHC Extensions
@@ -61,6 +59,7 @@ It seems we're doing twice the same thing.
 > import Prelude hiding (all, sequence)
 > import Control.Applicative
 > import Control.Monad.Except hiding (sequence)
+> import Control.Monad.Trans.Except (except)
 > import Control.Monad.Writer.Strict hiding (sequence)
 > import Control.Monad.Reader hiding (sequence)
 > import Data.Maybe (fromMaybe)
@@ -140,6 +139,11 @@ Set operations
 
 > unionSets :: Ord b => (a -> Set b) -> Set a -> Set b
 > unionSets = foldMap
+
+** Dynamics
+
+> toDynP :: Typeable a => proxy a -> a -> Dynamic
+> toDynP _ = toDyn
 
 * Context free grammar
 
@@ -540,9 +544,11 @@ And lastly, we collect constraints.
 
 private
 
-> runA :: A a -> Production -> (Either Error a, Context)
+> runA :: A a -> Production -> (AG a, Context)
 > runA (A a) p =
->   runWriter . runExceptT $ runReaderT a p
+>   ag . runWriter . runExceptT $ runReaderT a p
+>   where
+>     ag (e, c) = (except e, c)
 
 > current_production :: A Production
 > current_production = ask
@@ -597,7 +603,9 @@ Rule is abstract, only operations are the monoid, and computing the context.
 
 `runRule` is PRIVATE
 
-> runRule :: Rule -> (Either Error (Family -> Family), Context)
+> type FamRule = Family -> Family
+
+> runRule :: Rule -> (AG FamRule, Context)
 > runRule (Rule (AR a)) = runA b p
 >   where b = liftM (runReader . runR) a
 >         p = error "context: assert false"
@@ -610,7 +618,7 @@ a call to `local' (see the code of `inh' and `syn').
 > context = snd . runRule
 
 > checkRule :: Rule -> Maybe Error
-> checkRule = justLeft . fst . runRule
+> checkRule = justLeft . runExcept . fst . runRule
 
 * Error datatype
 
@@ -1008,32 +1016,6 @@ By hypothesis, we know that the attribute will be defined for them.
 >   (reduce . filterJust) <$> traverse (?a) cs
 
 * Running the grammar
-** Semantics
-
-> type SemTree = AttrMap -> AttrMap
-
-> type SemProd = Child :-> SemTree -> AttrMap -> SemTree
-
-`sem_rule` is an algebra
-
-> sem_rule :: (Family -> Family) -> SemProd
-> sem_rule rule forest terminals inh = syn
->   where
->     Family syn inh_children _ = rule $ Family inh syn_children terminals
->     syn_children = forest `applyMap` inh_children
-
-
-`sem_tree' computes the iteration of the algebra.
-
-> sem_tree :: SemProd -> InputTree -> SemTree
-> sem_tree sem_prod = sem
->   where sem (Node p cs ts) = sem_prod (Map.map sem cs) ts
-
-> unsafe_run :: (Family -> Family) -> InputTree -> SemTree
-> unsafe_run = sem_tree . sem_rule
-
- > run :: Rule -> Either Error (InputTree -> SemTree)
-
 ** Specifying input and output
 Rather than run the AG on the general tree type.
 
@@ -1073,6 +1055,12 @@ SynDesc is abstract
 >  where
 >    err = error $ "[BUG] project: undefined attribute " ++ show a
 
+**** Private
+
+> proj_S :: SynDesc s -> AttrMap -> s
+> proj_S = fst . runWriter . runSynDesc
+
+
 *** Inherited attributes
 Describing the root's inherited attribute and the terminals
 of a production follow a same pattern, therefore the
@@ -1103,7 +1091,7 @@ will be instanciated with `I' or `T' depending on the case.
 >  where
 >    union f g = \x -> Map.union (f x) (g x)
 
-Private
+**** Private
 
 > embed_dyn :: Typeable a =>
 >   Attr k a -> (t -> Dynamic) -> AttrDesc k t
@@ -1113,6 +1101,9 @@ Private
 
 > runInhDesc = runAttrDesc
 > runTermDesc = runAttrDesc
+
+> proj_I :: InhDesc i -> i -> AttrMap
+> proj_I = fst . runWriter . runInhDesc
 
 *** Example
 
@@ -1260,10 +1251,9 @@ them.
 >   , ntDesc_match :: t -> Match }
 
 > data Match =
->   Match { math_prod :: Production
+>   Match { math_prod :: Production -- we don't actually need it to run the AG.
 >         , match_child :: Child :-> Dynamic
 >         , match_terminals :: AttrMap }
-
 
 - all productions must belong to the given non-terminal
 - productions must be distincts
@@ -1414,15 +1404,65 @@ with the typeRep associated with each `childDesc'.
 Check the whole AG.
 
 > check ::
->   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG GramMap
+>   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG (NonTerminal, FamRule, Coalg)
 > check g i s r = do
 >   (root, grammar, gmap) <- check_gramDesc g
->   let ctx = context r
+>   let (check_rule, ctx) = runRule r
+>   famrule <- check_rule
 >   check_grammar (missing grammar ctx)
 >   check_inh_unique i
 >   check_inh_required i root (require_I ctx)
 >   check_syn_ensured s grammar root (ensure_S ctx)
->   return gmap
+>   return (root, famrule, coalg gmap)
+
+> run :: Typeable t =>
+>   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG (t -> i -> s)
+> run g i s r = do
+>   (root, famrule, coalg) <- check g i s r
+>   let sem = sem_coalg (sem_prod famrule) coalg root . toDynP g
+>   return $ \x -> proj_S s . sem x . proj_I i
+
+> coalg :: GramMap -> Coalg
+> coalg = Map.map $ \(t, proj) -> child_terms . proj
+>   where child_terms (Match _ c t) = (c, t)
+
+** Semantics
+
+> type SemTree = AttrMap -> AttrMap
+
+> type SemProd = Child :-> SemTree -> AttrMap -> SemTree
+
+`sem_prod` is an algebra
+
+> sem_prod :: FamRule -> SemProd
+> sem_prod rule forest terminals inh = syn
+>   where
+>     Family syn inh_children _ = rule $ Family inh syn_children terminals
+>     syn_children = forest `applyMap` inh_children
+
+> unsafe_run :: FamRule -> InputTree -> SemTree
+> unsafe_run = sem_tree . sem_prod
+
+`sem_tree' computes the iteration of the algebra.
+
+> sem_tree :: SemProd -> InputTree -> SemTree
+> sem_tree sem_prod = sem
+>   where sem (Node p cs ts) = sem_prod (Map.map sem cs) ts
+
+A Dynamic tree coalgebra
+
+> type Coalg =
+>   NonTerminal :-> (Dynamic -> (Child :-> Dynamic, AttrMap))
+
+Partial function, it assumes everything has been checked before.
+
+> sem_coalg :: SemProd -> Coalg -> NonTerminal -> Dynamic -> SemTree
+> sem_coalg sem_prod coalg = sem
+>   where
+>     sem nt dyn = sem_prod prod terms
+>       where
+>         (cmap, terms) = (coalg Map.! nt) dyn
+>         prod = Map.mapWithKey (\k d -> sem (child_nt k) d) cmap
 
 * Literate Haskell with org-mode
 The documentation part of this literate file is written in
