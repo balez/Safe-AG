@@ -628,7 +628,8 @@ Rule is abstract, only operations are the monoid, and computing the context.
 
 > (&) = mergeRule
 
-> concatRules = foldl mergeRule emptyRule
+> concatRules :: [Rule] -> Rule
+> concatRules = mconcat
 
 `runRule` is PRIVATE
 
@@ -648,6 +649,21 @@ a call to `local' (see the code of `inh' and `syn').
 
 > check_rule :: Rule -> Maybe Error
 > check_rule = justLeft . runExcept . fst . runRule
+
+** Aspects
+
+> newtype Aspect = Aspect (Production :-> Rule)
+> inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
+> emptyAspect = Aspect $ Map.empty
+> mergeAspect :: Op Aspect
+> mergeAspect = inAspect2 $ Map.unionWith mergeRule
+
+> instance Monoid Aspect where
+>   mempty = emptyAspect
+>   mappend = mergeAspect
+
+> concatAspects :: [Aspect] -> Aspect
+> concatAspects = mconcat
 
 * Error datatype
 
