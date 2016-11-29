@@ -32,20 +32,22 @@
 > data Root = Start BTree
 >            deriving (Show, Typeable)
 
+* Context free grammar
+
 ** Using the primitives for grammar definition
 *** Non-terminals
 
  > btree = non_terminal "BTree"
  > root = non_terminal "Root"
- 
+
  *** Productions
- 
+
  > start = production root "Start" [startTree] nilT
  > fork = production btree "Fork" [leftTree, rightTree] nilT
  > leaf = production btree "Leaf" [] (val `consT` nilT)
- 
+
  *** Children
- 
+
  > startTree = child start "startTree" btree
  > leftTree = child fork "leftTree" btree
  > rightTree = child fork "rightTree" btree
@@ -105,6 +107,10 @@ The same grammar is written as follows:
 > repminI = emptyAttrDesc
 > repminS = project ntree
 
+** Grammar
+
+> rootG = Set.fromList [start,fork,leaf]
+
 * Attributes
 
 > val = attr "val" T pInt -- leaf value (terminal)
@@ -113,12 +119,8 @@ The same grammar is written as follows:
 > locmin = attr "locmin" S pInt
 > ntree = attr "ntree" S pBTree
 
-* Grammar
-
-> rootG = Set.fromList [start,fork,leaf]
-
 * Rules
-
+** Repmin
 Remember the priority of merging is left to right, so copy
 must be given last.
 
@@ -139,8 +141,15 @@ must be given last.
 >   ]
 
  Try
- > missing btreeG (context ntreeR)
- > missing btreeG repminR
+ > missing rootG (context ntreeR)
+ > missing rootG (context repminR)
+
+*** Running
+
+> repminAG = (\f r -> f r ()) <$> run rootDesc repminI repminS repminR
+> repmin x = case runAG repminAG of
+>   Left err -> print err
+>   Right f -> print $ f x
 
 
 ** List of the leaves
@@ -164,31 +173,36 @@ must be given last.
 >     ]
 
  Try
- > missing btreeG (context tailR)
- > missing btreeG flattenR
-
- > let (Right r,c) = runRule repminR
- > in unsafe_run r example emptyAttrs
+ > missing rootG (context tailR)
+ > missing rootG (context flattenR)
 
 Trying the error system
 
 > badChild = syn flat leaf (leftTree!flat)
 
  Try
- > checkRule badChild
+ > check_rule badChild
 
 * Input Tree
-
-> exampleTree = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
->   where s x = Node start (startTree |-> x) emptyAttrs
->         x * y = Node fork (leftTree |-> x \/ rightTree |-> y) emptyAttrs
->         l x = Node leaf Map.empty (val |=> x)
+** BTree
 
 > example = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
 >   where s = Start
 >         (*) = Fork
 >         l = Leaf
 
-* Running
+** General Tree
 
-> repminAG = run rootDesc repminI repminS repminR
+> exampleTree = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
+>   where s x = Node start (startTree |-> x) emptyAttrs
+>         x * y = Node fork (leftTree |-> x \/ rightTree |-> y) emptyAttrs
+>         l x = Node leaf Map.empty (val |=> x)
+
+* Local variables for emacs
+Local Variables:
+mode: org
+eval: (org-indent-mode -1)
+eval: (mmm-ify-by-class 'literate-haskell-bird)
+eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
+compile-command: "ghc AG"
+End:

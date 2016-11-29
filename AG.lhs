@@ -38,17 +38,17 @@ when executing that function.
 
 ** Bibliography
 
-- [Moor]
+- **[Moor]**
   Oege De Moor, Kevin Backhouse, S. Doaitse Swierstra,
   /First-class Attribute Grammars/,
   Informatica, 2000.
 
-- [Viera]
+- **[Viera]**
   Marcos Viera, Swierstra, S. Doaitse Swierstra, Wouter Swierstra,
   /Attribute Grammars Fly First-class: How to Do Aspect Oriented Programming in Haskell/,
   ICFP 2009.
 
-- [Balestrieri]
+- **[Balestrieri]**
   Florent Balestrieri,
   /The productivity of polymorphic stream equations and the composition of circular traversals/,
   University of Nottingham, 2015.
@@ -59,9 +59,11 @@ mtl-2.2.1
 
 ** TODO
 - Add locations to errors
-- Remove GADTs option unless necessary
+- Pretty printer for errors
 - Template haskell to generate grammar, bindings, gramDesc
 - Reorganise source code for a better presentation (easier to read an understand).
+- Longer, real-world examples
+- Performance comparison with UUAG
 
 * Header
 ** GHC Extensions
@@ -101,10 +103,8 @@ mtl-2.2.1
 > import Data.Map (Map)
 > import Data.Traversable
 > import Data.Foldable (foldMap, all)
+> --import GHC.Stack -- callstacks
 > import Unknown
-
-
-http://hackage.haskell.org/package/base-4.9.0.0/docs/GHC-Stack.html
 
 * General definitions
 ** Function composition
@@ -646,8 +646,8 @@ a call to `local' (see the code of `inh' and `syn').
 > context :: Rule -> Context
 > context = snd . runRule
 
-> checkRule :: Rule -> Maybe Error
-> checkRule = justLeft . runExcept . fst . runRule
+> check_rule :: Rule -> Maybe Error
+> check_rule = justLeft . runExcept . fst . runRule
 
 * Error datatype
 
@@ -873,7 +873,7 @@ Generate errors if the child is not valid in the current production.
 > require_terminal a = tell_parent $ \p ->
 >   emptyCtx { require_T = cstr a p }
 
-** Rule primitives
+* Rule primitives
 Rules are defined in an applicative `AR', that comes with
 primitives to project attributes from either the parent, a
 child of the production or the terminal child.  Those

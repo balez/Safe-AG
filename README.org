@@ -38,17 +38,17 @@ when executing that function.
 
 ** Bibliography
 
-- [Moor]
+- **[Moor]**
   Oege De Moor, Kevin Backhouse, S. Doaitse Swierstra,
   /First-class Attribute Grammars/,
   Informatica, 2000.
 
-- [Viera]
+- **[Viera]**
   Marcos Viera, Swierstra, S. Doaitse Swierstra, Wouter Swierstra,
   /Attribute Grammars Fly First-class: How to Do Aspect Oriented Programming in Haskell/,
   ICFP 2009.
 
-- [Balestrieri]
+- **[Balestrieri]**
   Florent Balestrieri,
   /The productivity of polymorphic stream equations and the composition of circular traversals/,
   University of Nottingham, 2015.
