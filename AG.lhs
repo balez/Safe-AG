@@ -103,7 +103,7 @@ mtl-2.2.1
 > import Data.Map (Map)
 > import Data.Traversable
 > import Data.Foldable (foldMap, all)
-> --import GHC.Stack -- callstacks
+> import GHC.Stack -- callstacks
 > import Unknown
 
 * General definitions
@@ -1139,7 +1139,7 @@ will be instanciated with `I' or `T' depending on the case.
 
 > embed_T :: Typeable a =>
 >   Attr T a -> (t -> Maybe a) -> TermDesc t
-> embed_T a p = embed_dyn a (toDyn . (fromMaybe <*> err) . p)
+> embed_T a p = embed_dyn a (toDyn . fromMaybe err . p)
 >   where err = error $ "[BUG] embed_T: match error to compute terminal: " ++ show a
 
 > (#) :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t

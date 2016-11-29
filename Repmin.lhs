@@ -11,7 +11,7 @@
 
 ** Module Imports
 
-> module Repmin where
+> module Main where
 > import Data.Dynamic
 > import qualified Data.Set as Set
 > import qualified Data.Map as Map
@@ -193,7 +193,13 @@ Trying the error system
 > flatten x = case runAG flattenAG of
 >   Left err -> print err
 >   Right f -> print $ f x
- 
+
+* Main
+
+> main = do
+>   repmin example
+>   flatten example
+
 * Input Tree
 ** BTree
 
