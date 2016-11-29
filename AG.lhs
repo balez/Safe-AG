@@ -60,6 +60,8 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
+- use kinds in AttrMap so that
+  : type Family = (AttrMap I, ChildMap S, AttrMap T) -> (AttrMap S, ChildMap I)
 - Add locations to errors
 - Pretty printer for errors
 - Template haskell to generate grammar, bindings, gramDesc
@@ -73,10 +75,8 @@ mtl-2.2.1
 > {-# LANGUAGE
 >       TypeOperators
 >     , GADTs
->     , ExistentialQuantification
 >     , DeriveDataTypeable
 >     , GeneralizedNewtypeDeriving
->     , StandaloneDeriving
 >  #-}
 
 ** Module Exports
@@ -884,6 +884,7 @@ of `inh' and `syn').
 >   | Error_Tree_Missing_Children (Set Child)
 >   | Error_Tree_Invalid_Terminals (Set Attribute)
 >   | Error_Tree_Missing_Terminals (Set Attribute)
+>   | Error_InhAttrs_Missing (Set Require_I)
 >   deriving Show
 
  - `Error_Rule_Invalid_Child c p' ::
@@ -987,6 +988,7 @@ Synthesized attributes are defined for the parent of a production.
 > syns a = foldl (\rs (p,r) -> rs & syn a p r) emptyAspect
 
 * Other primitives (access context)
+TODO: I'm wondering if those primitives are useful.
 
 The current production
 
@@ -1008,6 +1010,7 @@ The parent non-terminal of the current production
 Note that all those rules are in only using the public
 primitives and could be defined by the user.
 
+** Copy
 `copy' copies the attribute the parent to the child.
 
 > copy :: Typeable a => Attr I a -> Child -> Aspect
@@ -1036,6 +1039,7 @@ nonterminal, but applies it to all the productions in the grammar.
 > copyGN :: Typeable a => Attr I a -> NonTerminal -> Grammar -> Aspect
 > copyGN a n g = copyG a $ Set.filter (\p -> prod_nt p == n) g
 
+** Collect
 `collect' applies a function to the attributes of a list of children
 to compute a synthesized attribute.
 
@@ -1048,19 +1052,62 @@ all children that implement it.
 
 > collectAll :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectAll a reduce p = syn a p $
->   children `bindAR` \cs ->
->   (reduce . filterJust) <$> traverse (?a) cs
+>   (reduce . filterJust) <$> traverse (?a) (prod_children p)
 
 `collectP' applies the function to the attributes of all the
 children that have the same non-terminal as the parent.
 By hypothesis, we know that the attribute will be defined for them.
 
 > collectP :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
-> collectP a reduce p = syn a p $
->   children `bindAR` \cs ->
->   parent `bindAR` \nt ->
->   let cs' = [ c | c <- cs, child_nt c == nt ] in
->   (reduce . filterJust) <$> traverse (?a) cs
+> collectP a reduce p = syn a p $ reduce <$> traverse (!a) cs
+>  where cs = [ c | c <- prod_children p, child_nt c == prod_nt p ]
+
+** Chain
+
+The chain rule takes a pair of an inherited and a synthesized
+attribute and thread them through the children of a
+production: the parent attribute is given to the first child,
+the attribute of the first child is given to the second and
+so on, the attribute of the last child is given back to the
+parent. So, this rule defines the inherited attribute for all
+the children and the synthesized attribute for the parent.
+
+> chain :: Typeable a =>
+>   Attr I a -> Attr S a -> Production -> Children -> Aspect
+> chain i s p cs =
+>   (inhs i $ zip cs $ par i : ((!s) <$> init cs))
+>   & syn s p (last cs ! s)
+
+Applies the chain rule the children of a production having
+the given non-terminal.
+
+> chainNs :: Typeable a =>
+>   Attr I a -> Attr S a -> Production -> [NonTerminal] -> Aspect
+> chainNs i s p ns = chain i s p cs
+>   where cs = [ c | c <- prod_children p, child_nt c `elem` ns]
+
+Applies the chain rule the children of a production having
+the same non-terminal as the parent.
+
+> chainP :: Typeable a =>
+>   Attr I a -> Attr S a -> Production -> Aspect
+> chainP i s p = chainNs i s p [prod_nt p]
+ 
+This one doesn't work because the children are in AR.
+ 
+ > chainPM :: Typeable a =>
+ >   Attr I a -> Attr S a -> Production -> Aspect
+ > chainPM i s p =
+ >   inhs i inh_rule
+ >   & syn s p syn_rule
+ >  where
+ >    cxs = filterJust <$> traverse (tag_with_syn s) $ prod_children p
+ >    tag_with_syn s c = (\x -> (c,x)) <$> c?s
+ >    filterJust cmxs = [(c,x) | (c, Just x) <- cmxs]
+ >    inh_rule = liftA2 (\cxs pi -> let (cs, xs) = unzip cxs in
+ >                        zip cs (pi : init xs)
+ >                      ) cxs (par i)
+ >    syn_rule = (snd . last) <$> cxs
 
 * Running the grammar
 ** Specifying input and output
@@ -1511,6 +1558,23 @@ the tree is compatible with the grammar.
 >     prod_ts = Set.map forget_kind $ prod_terminals prod
 >     ( invalid_terminals
 >      , missing_terminals) = terminals `symdiff` prod_ts
+
+** Checking the attributes
+
+When we run the general tree we must provide a map for
+inherited attributes. We check that all the required
+attributes are defined.
+
+ > check_attrs :: Set Attribute  -> NonTerminal -> Set Require_I -> AG ()
+ > check_attrs attrs root req
+ >   | Set.null missing = return ()
+ >   | otherwise = throwError $ Error_InhAttrs_Missing missing
+ >   where
+ >     missing = Set.difference req' attrs'
+ >     req' = Set.filter ((root ==) . constr_obj) req
+ >     attrs' = cstr <$> attrs
+ >     cstr a = Constraint a root
+
 
 ** Semantics
 
