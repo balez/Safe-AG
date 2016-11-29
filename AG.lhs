@@ -38,26 +38,20 @@ when executing that function.
 
 ** Bibliography
 
-@article{Moor,
-    author = {Oege De Moor and Kevin Backhouse and S. Doaitse Swierstra},
-    title = {First-class Attribute Grammars},
-    journal = {Informatica},
-    year = {2000},
-}
+- [Moor]
+  Oege De Moor, Kevin Backhouse, S. Doaitse Swierstra,
+  /First-class Attribute Grammars/,
+  Informatica, 2000.
 
-@inproceedings{Viera,
- author = {Viera, Marcos and Swierstra, S. Doaitse and Swierstra, Wouter},
- title = {Attribute Grammars Fly First-class: How to Do Aspect Oriented Programming in Haskell},
- booktitle = {Proceedings of the 14th ACM SIGPLAN International Conference on Functional Programming},
- year = {2009},
-}
+- [Viera]
+  Marcos Viera, Swierstra, S. Doaitse Swierstra, Wouter Swierstra,
+  /Attribute Grammars Fly First-class: How to Do Aspect Oriented Programming in Haskell/,
+  ICFP 2009.
 
-@phdthesis{Balestrieri,
-  author = {Balestrieri, Florent},
-  title = {The productivity of polymorphic stream equations and the composition of circular traversals},
-  school = {University of Nottingham}
-  year = {2015}
-}
+- [Balestrieri]
+  Florent Balestrieri,
+  /The productivity of polymorphic stream equations and the composition of circular traversals/,
+  University of Nottingham, 2015.
 
 ** Dependencies
 ghc-8.0.1
