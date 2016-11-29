@@ -60,8 +60,6 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
-- use kinds in AttrMap so that
-  : type Family = (AttrMap I, ChildMap S, AttrMap T) -> (AttrMap S, ChildMap I)
 - Add locations to errors
 - Pretty printer for errors
 - Template haskell to generate grammar, bindings, gramDesc
@@ -194,10 +192,10 @@ node labels, which are simply the production in the case of the input tree,
 but can also be paired with attributes in the case of a decorated tree.
 The `AttrMap' field introduces the terminal data.
 
-> data Tree n = Node n (Child :-> Tree n) AttrMap
+> data Tree n = Node n (Child :-> Tree n) (AttrMap T)
 >             deriving Show
 > type InputTree = Tree Production
-> type DecoratedTree = Tree (Production, AttrMap)
+> type DecoratedTree = Tree (Production, AttrMap I, AttrMap S)
 
 ** Grammar basic blocks
 *** Names
@@ -484,19 +482,20 @@ An attribution is a finite map from attribute name to values.
 Note: the use of Dynamics prevents us from having polymorphic
 attributes.
 
-> type AttrMap = Attribute :-> Dynamic
-> emptyAttrs :: AttrMap
+> type AttrSet k = Set (AttrOf k)
+> type AttrMap k = AttrOf k :-> Dynamic
+> emptyAttrs :: AttrMap k
 > emptyAttrs = Map.empty
-> mergeAttrs :: Op AttrMap
+> mergeAttrs :: Op (AttrMap k)
 > mergeAttrs = Map.union
 
 Note: we do an unsafe conversion, because lookupAttr will
 only be called after the AG has been typechecked at runtime.
 
-> lookupAttr :: (Typeable a) => Attr k a -> AttrMap -> Maybe a
+> lookupAttr :: (Typeable a) => Attr k a -> AttrMap k -> Maybe a
 > lookupAttr a m =
 >   (\d -> fromDyn d (err d))
->   <$> Map.lookup (Attribute a) m
+>   <$> Map.lookup (AttrOf a) m
 >   where
 >     err d = error $ "[BUG] lookupAttr:" ++ attr_type_err a d
 
@@ -504,19 +503,17 @@ only be called after the AG has been typechecked at runtime.
 >             ++ ", expected type: " ++ show (typeRep a)
 >             ++ ", runtime type: " ++ show (dynTypeRep d)
 
-> projAttr :: Typeable a => AttrMap -> Attr k a -> Maybe a
+> projAttr :: Typeable a => AttrMap k -> Attr k a -> Maybe a
 > projAttr = flip lookupAttr
-> (|=>) :: Typeable a => Attr k a -> a -> AttrMap
-> a |=> x = Attribute a |-> toDyn x
+> (|=>) :: Typeable a => Attr k a -> a -> AttrMap k
+> a |=> x = AttrOf a |-> toDyn x
 
 **** Parent, children and terminal attributions.
 
-> type TerminalAttrs = AttrMap
-> type ParentAttrs = AttrMap
-> type ChildrenAttrs = Child :-> AttrMap
-> emptyChildrenAttrs :: ChildrenAttrs
+> type ChildrenAttrs k = Child :-> AttrMap k
+> emptyChildrenAttrs :: ChildrenAttrs k
 > emptyChildrenAttrs = Map.empty
-> mergeChildrenAttrs :: Op ChildrenAttrs
+> mergeChildrenAttrs :: Op (ChildrenAttrs k)
 > mergeChildrenAttrs x y =
 >   Map.unionWith mergeAttrs x y
 
@@ -529,21 +526,25 @@ however the terminal attributes are only used
 as input. In the output, the terminal map will always be
 empty.
 
-> data Family = Family
->   { parentAttrs :: ParentAttrs
->   , childrenAttrs :: ChildrenAttrs
->   , terminalAttrs :: TerminalAttrs
->   }
+> type InAttrs = (AttrMap I, ChildrenAttrs S, AttrMap T)
+> type OutAttrs = (AttrMap S, ChildrenAttrs I)
 
-> emptyFam :: Family
-> emptyFam =
->   Family emptyAttrs emptyChildrenAttrs emptyAttrs
+> parentAttrs :: InAttrs -> AttrMap I
+> childrenAttrs :: InAttrs -> ChildrenAttrs S
+> terminalAttrs :: InAttrs -> AttrMap T
 
-> mergeFam :: Op Family
-> mergeFam (Family x xs a) (Family y ys b) =
->   Family (mergeAttrs x y)
->          (mergeChildrenAttrs xs ys)
->          (mergeAttrs a b)
+> parentAttrs (p,c,t) = p
+> childrenAttrs (p,c,t) = c
+> terminalAttrs (p,c,t) = t
+
+> emptyOutAttrs :: OutAttrs
+> emptyOutAttrs =
+>   (emptyAttrs, emptyChildrenAttrs)
+
+> mergeOutAttrs :: Op OutAttrs
+> mergeOutAttrs (x, xs) (y, ys) =
+>   ( mergeAttrs x y
+>   , mergeChildrenAttrs xs ys)
 
 * Contexts, Constraints
 
@@ -761,8 +762,8 @@ In order to gather information from the use of input family, we
 must define rule in a specific monad in which the input family
 is accessed through primitives.
 
-> newtype R a = R {runR :: Reader Family a} -- the rule monad
->   deriving (Functor, Applicative, Monad, MonadReader Family)
+> newtype R a = R {runR :: Reader InAttrs a} -- the rule monad
+>   deriving (Functor, Applicative, Monad, MonadReader InAttrs)
 
 In order to compute rules, we must first check that they are
 valid.  Rules are defined in the context of a production, and
@@ -804,14 +805,14 @@ attributions for the children.
 Rule is abstract, only operations are the monoid, and
 computing the context.
 
-> type PureRule = Family -> Family
-> type Rule = AR Family
+> type PureRule = InAttrs -> OutAttrs
+> type Rule = AR OutAttrs
 
 > emptyRule :: Rule
-> emptyRule = pure emptyFam
+> emptyRule = pure emptyOutAttrs
 
 > mergeRule :: Op Rule
-> mergeRule = liftA2 mergeFam
+> mergeRule = liftA2 mergeOutAttrs
 
 ** Aspect
 
@@ -838,7 +839,7 @@ of `inh' and `syn').
 > runAspect :: Aspect -> (AG PureAspect, Context)
 > runAspect (Aspect asp) = runA asp_a err
 >  where
->    asp_ar = traverse runAR  asp -- A (Production :-> R Family)
+>    asp_ar = traverse runAR  asp -- A (Production :-> R OutAttrs)
 >    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
 >    err = error "[BUG] runAspect: unexpected use of production."
 
@@ -857,8 +858,8 @@ of `inh' and `syn').
 >   | Error_ProdDesc_Invalid_Children (Set Child) Production
 >   | Error_ProdDesc_Missing_Children (Set Child) Production
 >   | Error_ProdDesc_Duplicate_Terminals [AttrOf T]
->   | Error_ProdDesc_Invalid_Terminals (Set (AttrOf T)) Production
->   | Error_ProdDesc_Missing_Terminals (Set (AttrOf T)) Production
+>   | Error_ProdDesc_Invalid_Terminals (AttrSet T) Production
+>   | Error_ProdDesc_Missing_Terminals (AttrSet T) Production
 >   | Error_NtDesc_Duplicate_Productions [Production] NonTerminal
 >   | Error_NtDesc_Invalid_Productions (Set Production) NonTerminal
 >   | Error_GramDesc_Duplicate NonTerminal
@@ -868,8 +869,8 @@ of `inh' and `syn').
 >   | Error_Missing Missing
 >   | Error_Tree_Invalid_Children (Set Child)
 >   | Error_Tree_Missing_Children (Set Child)
->   | Error_Tree_Invalid_Terminals (Set Attribute)
->   | Error_Tree_Missing_Terminals (Set Attribute)
+>   | Error_Tree_Invalid_Terminals (AttrSet T)
+>   | Error_Tree_Missing_Terminals (AttrSet T)
 >   | Error_InhAttrs_Missing (Set Require_I)
 >   deriving Show
 
@@ -942,14 +943,14 @@ evaluation of the attribute.
 >   Attr k a ->
 >   Production ->
 >   A () ->
->   (AttrMap -> Family) ->
+>   (AttrMap k -> OutAttrs) ->
 >   AR a -> Aspect
 > build_aspect attr production constraint fam rule =
 >   Aspect $ Map.singleton production $ AR $ do
 >     rule' <- local (const production) (constraint >> runAR rule)
 >     return $ fam' <$> rule'
 >   where
->     fam' x = fam (Attribute attr |-> toDyn x)
+>     fam' x = fam (attr |=> x)
 
 Inherited attributes are defined for a specific child of a
 production.  The production is determined by the Child.
@@ -959,7 +960,7 @@ we need to add a Production as an argument.
 
 > inh :: Typeable a => Attr I a -> Child -> AR a -> Aspect
 > inh a c = build_aspect a (child_prod c) (ensure_child c a)
->   $ \attrs -> emptyFam { childrenAttrs = c |-> attrs }
+>   $ \attrs -> (emptyAttrs, c |-> attrs)
 
 > inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Aspect
 > inhs a = foldl (\rs (c,r) -> rs & inh a c r) emptyAspect
@@ -968,7 +969,7 @@ Synthesized attributes are defined for the parent of a production.
 
 > syn :: Typeable a => Attr S a -> Production -> AR a -> Aspect
 > syn a p = build_aspect a p (ensure_parent a)
->   $ \attrs -> emptyFam { parentAttrs = attrs }
+>   $ \attrs -> (attrs, emptyChildrenAttrs)
 
 > syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Aspect
 > syns a = foldl (\rs (p,r) -> rs & syn a p r) emptyAspect
@@ -1060,9 +1061,9 @@ the same non-terminal as the parent.
 > chainP :: Typeable a =>
 >   Attr I a -> Attr S a -> Production -> Aspect
 > chainP i s p = chainNs i s p [prod_nt p]
- 
+
 This one doesn't work because the children are in AR.
- 
+
  > chainPM :: Typeable a =>
  >   Attr I a -> Attr S a -> Production -> Aspect
  > chainPM i s p =
@@ -1094,7 +1095,7 @@ For the synthesized attributes the following interface is enough.
 SynDesc is abstract
 
 > newtype SynDesc s = SynDesc { runSynDesc ::
->   Writer (Set (AttrOf S)) (AttrMap -> s) }
+>   Writer (Set (AttrOf S)) (AttrMap S -> s) }
 
 > instance Functor SynDesc where
 >   fmap f x = pure f <*> x
@@ -1113,7 +1114,7 @@ SynDesc is abstract
 
 **** Private
 
-> proj_S :: SynDesc s -> AttrMap -> s
+> proj_S :: SynDesc s -> AttrMap S -> s
 > proj_S = fst . runWriter . runSynDesc
 
 *** Inherited attributes
@@ -1123,7 +1124,7 @@ functions are generalised over the kind of attributes and
 will be instanciated with `I' or `T' depending on the case.
 
 > newtype AttrDesc k t  = AttrDesc { runAttrDesc ::
->    Writer ([AttrOf k]) (t -> AttrMap) }
+>    Writer ([AttrOf k]) (t -> AttrMap k) }
 
 > type InhDesc = AttrDesc I
 > type TermDesc = AttrDesc T
@@ -1152,12 +1153,12 @@ will be instanciated with `I' or `T' depending on the case.
 >   Attr k a -> (t -> Dynamic) -> AttrDesc k t
 > embed_dyn a p = AttrDesc $ do
 >   tell [AttrOf a]
->   return $ Map.singleton (Attribute a) . p
+>   return $ Map.singleton (AttrOf a) . p
 
 > runInhDesc = runAttrDesc
 > runTermDesc = runAttrDesc
 
-> proj_I :: InhDesc i -> i -> AttrMap
+> proj_I :: InhDesc i -> i -> AttrMap I
 > proj_I = fst . runWriter . runInhDesc
 
 *** Example
@@ -1232,7 +1233,7 @@ as a grammar production).
 > data ProdDescRec t = ProdDescRec
 >   { prodDesc_prod :: Production
 >   , prodDesc_children_types :: Child :-> TypeRep
->   , prodDesc_match :: t -> Maybe (Child :-> Dynamic, AttrMap) }
+>   , prodDesc_match :: t -> Maybe (Child :-> Dynamic, AttrMap T) }
 
 `prodDesc' associates a production to a constructor.
 
@@ -1308,7 +1309,7 @@ them.
 > data Match =
 >   Match { math_prod :: Production -- we don't actually need it to run the AG.
 >         , match_child :: Child :-> Dynamic
->         , match_terminals :: AttrMap }
+>         , match_terminals :: AttrMap T }
 
 - all productions must belong to the given non-terminal
 - productions must be distincts
@@ -1523,7 +1524,7 @@ the tree is compatible with the grammar.
 >     ( invalid_children
 >      , missing_children) = children `symdiff` prod_cs
 >     terminals = Map.keysSet ts
->     prod_ts = Set.map forget_kind $ prod_terminals prod
+>     prod_ts = prod_terminals prod
 >     ( invalid_terminals
 >      , missing_terminals) = terminals `symdiff` prod_ts
 
@@ -1546,14 +1547,14 @@ attributes are defined.
 
 ** Semantics
 
-> type SemTree = AttrMap -> AttrMap
+> type SemTree = AttrMap I -> AttrMap S
 
-> type SemProd = Child :-> SemTree -> AttrMap -> SemTree
+> type SemProd = Child :-> SemTree -> AttrMap T -> SemTree
 
 > sem_prod :: PureRule -> SemProd
 > sem_prod rule forest terminals inh = syn
 >   where
->     Family syn inh_children _ = rule $ Family inh syn_children terminals
+>     (syn, inh_children) = rule (inh, syn_children, terminals)
 >     syn_children = forest `applyMap` inh_children
 
 > unsafe_run :: PureAspect -> InputTree -> SemTree
