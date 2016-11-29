@@ -151,7 +151,6 @@ must be given last.
 >   Left err -> print err
 >   Right f -> print $ f x
 
-
 ** List of the leaves
 
 > tailf = attr "tail" I (pList pInt)
@@ -169,10 +168,11 @@ must be given last.
 >   inhs tailf
 >     [ rightTree |- par tailf
 >     , leftTree  |- rightTree!flat
->     , startTree |- par tailf
+>     , startTree |- pure []
 >     ]
 
- Try
+*** Testing
+    Try
  > missing rootG (context tailR)
  > missing rootG (context flattenR)
 
@@ -183,6 +183,17 @@ Trying the error system
  Try
  > check_rule badChild
 
+*** Running
+
+> flattenI = emptyAttrDesc
+> flattenS = project flat
+
+> flattenAG = (\f r -> f r ()) <$> run rootDesc flattenI flattenS flattenR
+
+> flatten x = case runAG flattenAG of
+>   Left err -> print err
+>   Right f -> print $ f x
+ 
 * Input Tree
 ** BTree
 
@@ -204,5 +215,5 @@ mode: org
 eval: (org-indent-mode -1)
 eval: (mmm-ify-by-class 'literate-haskell-bird)
 eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
-compile-command: "ghc AG"
+compile-command: "ghc Repmin"
 End:

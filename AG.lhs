@@ -540,7 +540,8 @@ empty.
 >          (mergeChildrenAttrs xs ys)
 >          (mergeAttrs a b)
 
-* Rules
+* Rules and aspects
+** A and R monads
 An attribute grammar is given by a context free grammars and
 attribution rules.
 
@@ -582,7 +583,7 @@ private
 > current_production :: A Production
 > current_production = ask
 
-A, R and AR are abstract. (R is even private)
+** AR applicative
 
 > newtype AR a = AR {runAR :: A (R a)}
 >
@@ -611,9 +612,10 @@ synthesized attributions for the children and compute a
 synthesized attribution for the parents and inherited
 attributions for the children.
 
+** Rule
 Rule is abstract, only operations are the monoid, and computing the context.
 
-> newtype Rule = Rule (AR Family)
+> newtype Rule = Rule {unRule :: AR Family}
 > inRule2 f (Rule x) (Rule y) = Rule (f x y)
 
 > emptyRule :: Rule
@@ -626,8 +628,6 @@ Rule is abstract, only operations are the monoid, and computing the context.
 >   mempty = emptyRule
 >   mappend = mergeRule
 
-> (&) = mergeRule
-
 > concatRules :: [Rule] -> Rule
 > concatRules = mconcat
 
@@ -638,25 +638,26 @@ Rule is abstract, only operations are the monoid, and computing the context.
 > runRule :: Rule -> (AG FamRule, Context)
 > runRule (Rule (AR a)) = runA b p
 >   where b = liftM (runReader . runR) a
->         p = error "context: assert false"
+>         p = error "[BUG] runRule: unexpected use of production."
 
 Note: the production in the readerT is not used for rules.
 Because when we build rules we always override the production with
 a call to `local' (see the code of `inh' and `syn').
 
-> context :: Rule -> Context
-> context = snd . runRule
+> context_rule :: Rule -> Context
+> context_rule = snd . runRule
 
 > check_rule :: Rule -> Maybe Error
 > check_rule = justLeft . runExcept . fst . runRule
 
-** Aspects
+** Aspect
 
 > newtype Aspect = Aspect (Production :-> Rule)
 > inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
 > emptyAspect = Aspect $ Map.empty
 > mergeAspect :: Op Aspect
 > mergeAspect = inAspect2 $ Map.unionWith mergeRule
+> (&) = mergeAspect
 
 > instance Monoid Aspect where
 >   mempty = emptyAspect
@@ -664,6 +665,16 @@ a call to `local' (see the code of `inh' and `syn').
 
 > concatAspects :: [Aspect] -> Aspect
 > concatAspects = mconcat
+
+> runAspect :: Aspect -> (AG (Production :-> FamRule), Context)
+> runAspect (Aspect asp) = runA asp_a err
+>  where
+>    asp_ar = traverse (runAR . unRule)  asp -- A (Production :-> R Family)
+>    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A (Production :-> FamRule)
+>    err = error "[BUG] runAspect: unexpected use of production."
+
+> context :: Aspect -> Context
+> context = snd . runAspect
 
 * Error datatype
 
@@ -949,17 +960,18 @@ evaluation of the attribute.
 
 (private) Common boiler plate to build a rule (shared by inh and syn)
 
-> build_rule :: Typeable a =>
+> build_aspect :: Typeable a =>
 >   Attr k a ->
 >   Production ->
 >   A () ->
 >   (AttrMap -> Family) ->
->   AR a -> Rule
-> build_rule a p c f r = Rule $ AR $ do
->    r' <- local (const p) (c >> runAR r)
->    return $ fam <$> r'
+>   AR a -> Aspect
+> build_aspect attr production constraint fam rule =
+>   Aspect $ Map.singleton production $ Rule $ AR $ do
+>     rule' <- local (const production) (constraint >> runAR rule)
+>     return $ fam' <$> rule'
 >   where
->     fam x = f (Attribute a |-> toDyn x)
+>     fam' x = fam (Attribute attr |-> toDyn x)
 
 
 Inherited attributes are defined for a specific child of a
@@ -968,21 +980,21 @@ production.  The production is determined by the Child.
 NOTE: since the child_prod is ProdName instead of a Production,
 we need to add a Production as an argument.
 
-> inh :: Typeable a => Attr I a -> Child -> AR a -> Rule
-> inh a c = build_rule a (child_prod c) (ensure_child c a)
+> inh :: Typeable a => Attr I a -> Child -> AR a -> Aspect
+> inh a c = build_aspect a (child_prod c) (ensure_child c a)
 >   $ \attrs -> emptyFam { childrenAttrs = c |-> attrs }
 
-> inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Rule
-> inhs a = foldl (\rs (c,r) -> rs & inh a c r) emptyRule
+> inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Aspect
+> inhs a = foldl (\rs (c,r) -> rs & inh a c r) emptyAspect
 
 Synthesized attributes are defined for the parent of a production.
 
-> syn :: Typeable a => Attr S a -> Production -> AR a -> Rule
-> syn a p = build_rule a p (ensure_parent a)
+> syn :: Typeable a => Attr S a -> Production -> AR a -> Aspect
+> syn a p = build_aspect a p (ensure_parent a)
 >   $ \attrs -> emptyFam { parentAttrs = attrs }
 
-> syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Rule
-> syns a = foldl (\rs (p,r) -> rs & syn a p r) emptyRule
+> syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Aspect
+> syns a = foldl (\rs (p,r) -> rs & syn a p r) emptyAspect
 
 * Other primitives (access context)
 
@@ -1008,16 +1020,16 @@ primitives and could be defined by the user.
 
 `copy' copies the attribute the parent to the child.
 
-> copy :: Typeable a => Attr I a -> Child -> Rule
+> copy :: Typeable a => Attr I a -> Child -> Aspect
 > copy a c = inh a c (par a)
 
-> copyN :: Typeable a => Attr I a -> Children -> Rule
-> copyN a cs = concatRules . map (copy a) $ cs
+> copyN :: Typeable a => Attr I a -> Children -> Aspect
+> copyN a cs = concatAspects . map (copy a) $ cs
 
 `copyP' copies the inherited attribute of the parent to all
 the children that have the same non-terminal.
 
-> copyP :: Typeable a => Attr I a -> Production -> Rule
+> copyP :: Typeable a => Attr I a -> Production -> Aspect
 > copyP a p = copyN a cs
 >   where cs = [ c | c <- prod_children p
 >                  , child_nt c == prod_nt p ]
@@ -1025,26 +1037,26 @@ the children that have the same non-terminal.
 `copyG' implements the copy rule systematically for a whole
 grammar.
 
-> copyG :: Typeable a => Attr I a -> Grammar -> Rule
-> copyG a = Set.foldr (\p r -> copyP a p & r) emptyRule
+> copyG :: Typeable a => Attr I a -> Grammar -> Aspect
+> copyG a = Set.foldr (\p r -> copyP a p & r) emptyAspect
 
 `copyGN' only implements the copy rule for the given
 nonterminal, but applies it to all the productions in the grammar.
 
-> copyGN :: Typeable a => Attr I a -> NonTerminal -> Grammar -> Rule
+> copyGN :: Typeable a => Attr I a -> NonTerminal -> Grammar -> Aspect
 > copyGN a n g = copyG a $ Set.filter (\p -> prod_nt p == n) g
 
 `collect' applies a function to the attributes of a list of children
 to compute a synthesized attribute.
 
-> collect :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Children -> Rule
+> collect :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Children -> Aspect
 > collect a reduce p cs = syn a p $
 >   reduce <$> traverse (!a) cs
 
 `collectAll' applies the function to all the attributes for
 all children that implement it.
 
-> collectAll :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Rule
+> collectAll :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectAll a reduce p = syn a p $
 >   children `bindAR` \cs ->
 >   (reduce . filterJust) <$> traverse (?a) cs
@@ -1053,7 +1065,7 @@ all children that implement it.
 children that have the same non-terminal as the parent.
 By hypothesis, we know that the attribute will be defined for them.
 
-> collectP :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Rule
+> collectP :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectP a reduce p = syn a p $
 >   children `bindAR` \cs ->
 >   parent `bindAR` \nt ->
@@ -1452,27 +1464,26 @@ with the typeRep associated with each `childDesc'.
 Check the whole AG.
 
 > check ::
->   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG (NonTerminal, FamRule, Coalg)
+>   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (NonTerminal, Production :-> FamRule, Coalg)
 > check g i s r = do
 >   (root, grammar, gmap) <- check_gramDesc g
->   let (check_rule, ctx) = runRule r
->   famrule <- check_rule
+>   let (check_aspect, ctx) = runAspect r
+>   asp <- check_aspect
 >   check_grammar (missing grammar ctx)
 >   check_inh_unique i
 >   check_inh_required i root (require_I ctx)
 >   check_syn_ensured s grammar root (ensure_S ctx)
->   return (root, famrule, coalg gmap)
+>   return (root, asp, coalg gmap)
 
 > run :: Typeable t =>
->   GramDesc t -> InhDesc i -> SynDesc s -> Rule -> AG (t -> i -> s)
-> run g i s r = do
->   (root, famrule, coalg) <- check g i s r
->   let sem = sem_coalg (sem_prod famrule) coalg root . toDynP g
+>   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (t -> i -> s)
+> run g i s a = do
+>   (root, asp, coalg) <- check g i s a
+>   let sem = sem_coalg (Map.map sem_prod asp) coalg root . toDynP g
 >   return $ \x -> proj_S s . sem x . proj_I i
 
 > coalg :: GramMap -> Coalg
-> coalg = Map.map $ \(t, proj) -> child_terms . proj
->   where child_terms (Match _ c t) = (c, t)
+> coalg = Map.map snd
 
 ** Semantics
 
@@ -1480,37 +1491,36 @@ Check the whole AG.
 
 > type SemProd = Child :-> SemTree -> AttrMap -> SemTree
 
-`sem_prod` is an algebra
-
 > sem_prod :: FamRule -> SemProd
 > sem_prod rule forest terminals inh = syn
 >   where
 >     Family syn inh_children _ = rule $ Family inh syn_children terminals
 >     syn_children = forest `applyMap` inh_children
 
-> unsafe_run :: FamRule -> InputTree -> SemTree
-> unsafe_run = sem_tree . sem_prod
+> unsafe_run :: Production :-> FamRule -> InputTree -> SemTree
+> unsafe_run = sem_tree . Map.map sem_prod
 
 `sem_tree' computes the iteration of the algebra.
 
-> sem_tree :: SemProd -> InputTree -> SemTree
-> sem_tree sem_prod = sem
->   where sem (Node p cs ts) = sem_prod (Map.map sem cs) ts
+> sem_tree :: Production :-> SemProd -> InputTree -> SemTree
+> sem_tree alg = sem
+>   where sem (Node p cs ts) = (alg Map.! p)  (Map.map sem cs) ts
 
 A Dynamic tree coalgebra
 
-> type Coalg =
->   NonTerminal :-> (Dynamic -> (Child :-> Dynamic, AttrMap))
+> type Coalg = NonTerminal :-> (Dynamic -> Match)
 
 Partial function, it assumes everything has been checked before.
 
-> sem_coalg :: SemProd -> Coalg -> NonTerminal -> Dynamic -> SemTree
-> sem_coalg sem_prod coalg = sem
+> sem_coalg ::
+>   Production :-> SemProd ->
+>   Coalg -> NonTerminal -> Dynamic -> SemTree
+> sem_coalg alg coalg = sem
 >   where
->     sem nt dyn = sem_prod prod terms
+>     sem nt dyn = (alg Map.! prod) children terms
 >       where
->         (cmap, terms) = (coalg Map.! nt) dyn
->         prod = Map.mapWithKey (\k d -> sem (child_nt k) d) cmap
+>         Match prod cmap terms = (coalg Map.! nt) dyn
+>         children = Map.mapWithKey (\k d -> sem (child_nt k) d) cmap
 
 * Literate Haskell with org-mode
 The documentation part of this literate file is written in
