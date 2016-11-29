@@ -1,28 +1,56 @@
-* overview
-EDSL for attribute grammars in Haskell inspired by De Moor's
-design.  With runtime typechecking. It is the dynamic version
-of the AG a la carte design.  Runtime typechecking is to be
-contrasted with dynamic typing in that we do the typechecking
-at runtime once and for all, whereas dynamic typing involves
-doing testing the types every time a function is used. With
-the possibility to fail if the type mismatch. However with
-runtime typechecking, if a function passes the tests, we have
-the certainty that no type error will be the cause for
-failure when executing that function.
+* Overview
+EDSL for attribute grammars in Haskell.
 
-The approach involves a combination of static and runtime
-typechecking: the type of attributes and their kind
+This library defines first-class attribute grammars
+objects. This allows to write compilers modularly.  Our
+approach is distinct to the previous attempts in that it is
+both lightweight and type safe.
+
+Other first-class implementation of attribute grammars in
+Haskell are:
+
+- [Moor] :: Light-weight approach with no type safety.
+- [Viera] :: Type-safe approach with complex types and classes.
+- [Balestrieri] :: Type-safe approach with complex types and classes.
+
+Our lightweight approach ensures a clean public interface for
+the user with simple types and simple error messages that do
+not leak implementation details, unlike [Viera] and
+[Balestrieri]. In addition, the grammars are thoroughly
+checked unlike with the simple approach of [Moor].
+
+To achieve this, our approach involves two typechecking
+phases.  This first is the static typechecking by the
+compiler where the type of attributes and their kind
 (inherited, synthesized, or terminals) is checked
-statically. But the completeness of the grammar is checked at
-runtime.
+statically. The second phase checks that the attribtion rules
+are complete for a given grammar, that the concrete tree type
+is compatible with the grammar, and that the concrete input
+and output types are compatible with the attribution rules.
+This second phase occurs at runtime, however it should not be
+confused with dynamic typing: in contrast, the runtime
+typechecking is done once and for all, whereas dynamic typing
+involves doing testing the types every time a function is
+used and may fail if the type mismatch. However with runtime
+typechecking, if a function passes the tests, we have the
+certainty that no type error will be the cause for failure
+when executing that function.
 
-We want to collect type informations on rules before even
-computing them, so that the whole AG can be typechecked
-before it is being run.  In order to do that, we use a monad,
-that writes constraints and that read the input of the rules
-(a family). But since we want to collect before computing,
-the writer must come before the reader. This means we do not
-have access to the input types.
+** Bibliography
+
+@ARTICLE{Moor:first-class-ag,
+    author = {Oege De Moor and Kevin Backhouse and S. Doaitse Swierstra},
+    title = {First-class Attribute Grammars},
+    journal = {Informatica},
+    year = {2000},
+}
+
+@inproceedings{Viera:ag-fly-first-class,
+ author = {Viera, Marcos and Swierstra, S. Doaitse and Swierstra, Wouter},
+ title = {Attribute Grammars Fly First-class: How to Do Aspect Oriented Programming in Haskell},
+ booktitle = {Proceedings of the 14th ACM SIGPLAN International Conference on Functional Programming},
+ year = {2009},
+}
 
 ** Dependencies
 ghc-8.0.1

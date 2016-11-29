@@ -1,2 +1,37 @@
 * SLAG
 Safe and Lightweight Attribute Grammars for Haskell
+
+This library defines an EDSL for first-class attribute
+grammars objects. This allows to write compilers modularly.
+Our approach is distinct to the previous attempts in that it
+is both lightweight and type safe.
+
+Other first-class implementation of attribute grammars in
+Haskell are:
+
+- [Moor] :: Light-weight approach with no type safety.
+- [Viera] :: Type-safe approach with complex types and classes.
+- [Balestrieri] :: Type-safe approach with complex types and classes.
+
+Our lightweight approach ensures a clean public interface for
+the user with simple types and simple error messages that do
+not leak implementation details, unlike [Viera] and
+[Balestrieri]. In addition, the grammars are thoroughly
+checked unlike with the simple approach of [Moor].
+
+To achieve this, our approach involves two typechecking
+phases.  This first is the static typechecking by the
+compiler where the type of attributes and their kind
+(inherited, synthesized, or terminals) is checked
+statically. The second phase checks that the attribtion rules
+are complete for a given grammar, that the concrete tree type
+is compatible with the grammar, and that the concrete input
+and output types are compatible with the attribution rules.
+This second phase occurs at runtime, however it should not be
+confused with dynamic typing: in contrast, the runtime
+typechecking is done once and for all, whereas dynamic typing
+involves doing testing the types every time a function is
+used and may fail if the type mismatch. However with runtime
+typechecking, if a function passes the tests, we have the
+certainty that no type error will be the cause for failure
+when executing that function.
