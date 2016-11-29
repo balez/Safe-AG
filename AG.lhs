@@ -215,7 +215,7 @@ The `AttrMap' field introduces the terminal data.
 > data Production = Production
 >   { prod_name :: ProdName
 >   , prod_orphans :: [Orphan]
->   , prod_terminals :: Set (AttrOf T) }
+>   , prod_terminals :: Set (Attribute T) }
 >   deriving (Eq, Ord)
 
 *** Children
@@ -231,15 +231,15 @@ The `AttrMap' field introduces the terminal data.
 
 *** Terminals
 `Terminals' is abstract so that the user doesn't manipulate
-`AttrOf'.
+`Attribute'.
 
-> newtype Terminals = Terminals {terms_set :: Set (AttrOf T)}
+> newtype Terminals = Terminals {terms_set :: Set (Attribute T)}
 
 > nilT :: Terminals
 > nilT = Terminals Set.empty
 > consT :: Typeable a => Attr T a -> Terminals -> Terminals
 > consT t (Terminals ts) =
->   Terminals $ Set.insert (AttrOf t) ts
+>   Terminals $ Set.insert (Attribute t) ts
 
 *** Misc functions
 
@@ -414,7 +414,7 @@ then they are different: only their names are overloaded.
 > dualOrdering GT = LT
 > dualOrdering EQ = EQ
 
-*** Attr, AttrOf, Attribute
+*** Attr, Attribute
 
 > data Attr k a = Attr
 >   { attr_name :: Name
@@ -423,14 +423,8 @@ then they are different: only their names are overloaded.
 > attr :: Typeable a => Name -> Kind m -> p a -> Attr m a
 > attr n k _ = Attr n k
 
-> data AttrOf k where
->   AttrOf :: Typeable a => Attr k a -> AttrOf k
-
-> data Attribute where
->   Attribute :: Typeable a => Attr k a -> Attribute
-
-> forget_kind :: AttrOf k -> Attribute
-> forget_kind (AttrOf a) = Attribute a
+> data Attribute k where
+>   Attribute :: Typeable a => Attr k a -> Attribute k
 
 **** Eq, Ord
 WARNING: what if two attributes with the same name and
@@ -440,50 +434,40 @@ consider them different then it should behave just fine.  The
 names are overloaded but we can distinguish the concrete
 attributes by their types.
 
-> instance Eq Attribute where
->   x == y  =  compare x y == EQ
-
-> instance Ord Attribute where
->   Attribute a@(Attr x j) `compare` Attribute b@(Attr y k) =
->     (x `compare` y)
->     `lexicographic` ((j `compareKind` k)
->                      `lexicographic` (typeRep a `compare` typeRep b))
-
 > lexicographic EQ c = c
 > lexicographic c _ = c
 
 > eqAttr :: (Typeable a, Typeable a') =>
 >   Attr k a -> Attr k' a' -> Bool
 > eqAttr x y =
->   Attribute x == Attribute y
+>   x `compareAttr` y  == EQ
 
 > compareAttr :: (Typeable a, Typeable a') =>
 >   Attr k a -> Attr k' a' -> Ordering
-> compareAttr x y =
->   Attribute x `compare` Attribute y
+> compareAttr a@(Attr x j) b@(Attr y k) =
+>     (x `compare` y)
+>     `lexicographic` ((j `compareKind` k)
+>                      `lexicographic` (typeRep a `compare` typeRep b))
 
-> instance Eq (AttrOf k) where
->   x == y  = compare x y == EQ
-> instance Ord (AttrOf k) where
->   AttrOf x `compare` AttrOf y =
->     x `compareAttr` y
+> instance Eq (Attribute k) where
+>   Attribute x == Attribute y  =  x `eqAttr` y
+
+> instance Ord (Attribute k) where
+>   Attribute x `compare` Attribute y  =  x `compareAttr` y
 
 > instance Typeable a => Show (Attr k a) where
 >   show = attr_name
 
-> instance Show Attribute where
+> instance Show (Attribute k) where
 >   show (Attribute x) = show x
-
-> instance Show (AttrOf k) where
->   show (AttrOf x) = show x
 
 *** Attributions
 An attribution is a finite map from attribute name to values.
 Note: the use of Dynamics prevents us from having polymorphic
 attributes.
 
-> type AttrSet k = Set (AttrOf k)
-> type AttrMap k = AttrOf k :-> Dynamic
+> type AttrSet k = Set (Attribute k)
+> type AttrMap k = Attribute k :-> Dynamic
 > emptyAttrs :: AttrMap k
 > emptyAttrs = Map.empty
 > mergeAttrs :: Op (AttrMap k)
@@ -495,7 +479,7 @@ only be called after the AG has been typechecked at runtime.
 > lookupAttr :: (Typeable a) => Attr k a -> AttrMap k -> Maybe a
 > lookupAttr a m =
 >   (\d -> fromDyn d (err d))
->   <$> Map.lookup (AttrOf a) m
+>   <$> Map.lookup (Attribute a) m
 >   where
 >     err d = error $ "[BUG] lookupAttr:" ++ attr_type_err a d
 
@@ -506,7 +490,7 @@ only be called after the AG has been typechecked at runtime.
 > projAttr :: Typeable a => AttrMap k -> Attr k a -> Maybe a
 > projAttr = flip lookupAttr
 > (|=>) :: Typeable a => Attr k a -> a -> AttrMap k
-> a |=> x = AttrOf a |-> toDyn x
+> a |=> x = Attribute a |-> toDyn x
 
 **** Parent, children and terminal attributions.
 
@@ -577,8 +561,8 @@ used (required) and attributes that are defined (ensured).
 
 > constr_obj :: Constraint k t -> t
 > constr_obj (Constraint a x) = x
-> constr_attr :: Constraint k t -> AttrOf k
-> constr_attr (Constraint a x) = AttrOf a
+> constr_attr :: Constraint k t -> Attribute k
+> constr_attr (Constraint a x) = Attribute a
 
 > instance Eq t => Eq (Constraint k t) where
 >   Constraint a x == Constraint b y =
@@ -644,7 +628,7 @@ Extract all the terminals axioms from a grammar.
 > prod_ensure_T :: Production -> Set Ensure_T
 > prod_ensure_T p = Set.map ensure $ prod_terminals p
 >   where
->     ensure (AttrOf a) = Constraint a p
+>     ensure (Attribute a) = Constraint a p
 
 ** Checking contexts
 There is no invalid context, and no redundent
@@ -851,13 +835,13 @@ of `inh' and `syn').
 > data Error
 >   = Error_Rule_Invalid_Child Child Production
 >   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
->   | Error_InhDesc_Duplicate [AttrOf I] -- raised when checking InhDesc
+>   | Error_InhDesc_Duplicate [Attribute I] -- raised when checking InhDesc
 >   | Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
 >   | Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
 >   | Error_ProdDesc_Duplicate_Children [Child] Production
 >   | Error_ProdDesc_Invalid_Children (Set Child) Production
 >   | Error_ProdDesc_Missing_Children (Set Child) Production
->   | Error_ProdDesc_Duplicate_Terminals [AttrOf T]
+>   | Error_ProdDesc_Duplicate_Terminals [Attribute T]
 >   | Error_ProdDesc_Invalid_Terminals (AttrSet T) Production
 >   | Error_ProdDesc_Missing_Terminals (AttrSet T) Production
 >   | Error_NtDesc_Duplicate_Productions [Production] NonTerminal
@@ -1095,7 +1079,7 @@ For the synthesized attributes the following interface is enough.
 SynDesc is abstract
 
 > newtype SynDesc s = SynDesc { runSynDesc ::
->   Writer (Set (AttrOf S)) (AttrMap S -> s) }
+>   Writer (Set (Attribute S)) (AttrMap S -> s) }
 
 > instance Functor SynDesc where
 >   fmap f x = pure f <*> x
@@ -1107,7 +1091,7 @@ SynDesc is abstract
 
 > project :: Typeable a => Attr S a -> SynDesc a
 > project a = SynDesc $ do
->   tell (Set.singleton (AttrOf a))
+>   tell (Set.singleton (Attribute a))
 >   return $ fromMaybe err . lookupAttr a
 >  where
 >    err = error $ "[BUG] project: undefined attribute " ++ show a
@@ -1124,7 +1108,7 @@ functions are generalised over the kind of attributes and
 will be instanciated with `I' or `T' depending on the case.
 
 > newtype AttrDesc k t  = AttrDesc { runAttrDesc ::
->    Writer ([AttrOf k]) (t -> AttrMap k) }
+>    Writer ([Attribute k]) (t -> AttrMap k) }
 
 > type InhDesc = AttrDesc I
 > type TermDesc = AttrDesc T
@@ -1152,8 +1136,8 @@ will be instanciated with `I' or `T' depending on the case.
 > embed_dyn :: Typeable a =>
 >   Attr k a -> (t -> Dynamic) -> AttrDesc k t
 > embed_dyn a p = AttrDesc $ do
->   tell [AttrOf a]
->   return $ Map.singleton (AttrOf a) . p
+>   tell [Attribute a]
+>   return $ Map.singleton (Attribute a) . p
 
 > runInhDesc = runAttrDesc
 > runTermDesc = runAttrDesc
@@ -1285,7 +1269,7 @@ them.
 `prodDesc'.
 
 > check_attr_unique ::
->   ([AttrOf k] -> Error) -> AttrDesc k t -> AG ()
+>   ([Attribute k] -> Error) -> AttrDesc k t -> AG ()
 > check_attr_unique err desc
 >   | null xs' = return ()
 >   | otherwise = throwError $ err xs'
@@ -1412,7 +1396,7 @@ the root.
 >     missing = Set.difference req' is'
 >     req' = Set.filter ((root ==) . constr_obj) req
 >     is' = Set.fromList (cstr <$> is)
->     cstr (AttrOf a) = Constraint a root
+>     cstr (Attribute a) = Constraint a root
 >     (proj, is) = runWriter . runInhDesc $ desc
 
 All the synthesized attributes accessed from the root are
@@ -1426,7 +1410,7 @@ ensured by the rules.
 >   where
 >     missing = unionSets (missing_S prods ens) ss'
 >     ss' = Set.map cstr ss
->     cstr (AttrOf a) = Constraint a root
+>     cstr (Attribute a) = Constraint a root
 >     (proj, ss) = runWriter . runSynDesc $ desc
 
 The non-terminal associated with each child must correspond
