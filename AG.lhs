@@ -67,6 +67,31 @@ mtl-2.2.1
 - Longer, real-world examples
 - Performance comparison with UUAG
 
+** Discussion
+*** Merging aspect: duplicated rules.
+I(Flo) think it is desirable that duplicated rules are
+flagged as errors. So far, the merging aspect operator (&)
+gives a preference to the left. Making the change is not to
+complicated: instead of keeping sets of "Ensure" contraints,
+we keep lists.
+
+We might also need a way to remove some rules from an aspect
+and maybe to rename attributes.  I'm not sure if deletion and
+renaming are so important because we could always manipulate
+small aspects so that such conflicts never arise: rather than
+combining first and deleting later we could just recombine
+the small bits.
+
+*** Deletion
+Deletion would involve deleting from the OutAttrs map, and
+deleting from the context as well.
+
+*** Renaming
+Marcos suggested that attribute could have two fields: the
+base name and a renaming function. The R monad would also
+have a reader for the renaming function. Using this system we
+can implement a very flexible namespace system.
+
 * Header
 ** GHC Extensions
 
