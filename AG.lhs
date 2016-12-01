@@ -299,6 +299,25 @@ Set operations
 > toDynP :: Typeable a => proxy a -> a -> Dynamic
 > toDynP _ = toDyn
 
+** Monads
+
+A `traverse' that only collects errors
+
+> collect_errors :: (MonadError e m, Foldable t) =>
+>   t (m a) -> m [e]
+> collect_errors = foldr cons (return [])
+>  where
+>    cons mx me =  (mx >> me) `catchError` handler me
+>    handler me e = (e:) <$> me
+
+> collect_error :: MonadError e m => m a -> m (Either e a)
+> collect_error mx =
+>   catchError (Right <$> mx) (return . Left)
+
+> traverse_errors :: (MonadError e m, Traversable t) =>
+>   (a -> m b) -> t a -> m (t (Either e b))
+> traverse_errors f = traverse (collect_error . f)
+
 * Context free grammar
 
 An attribute grammar has two elements: a context free grammar
@@ -1046,10 +1065,17 @@ if this definition is not provided by `aspect'.
 is not used for rules.  Because when we build rules we always
 override the production with a call to `local' (see the code
 of `inh' and `syn').
+Note: we collect the errors from each production.
 
 > runAspect :: Aspect -> (AG PureAspect, Context)
-> runAspect (Aspect asp) = runA asp_a err
+> runAspect (Aspect asp) = (asp_err, ctx)
 >  where
+>    errors_ag = fst $ runA (collect_errors $ runAR <$> asp) err
+>    (asp_ag, ctx) = runA asp_a err
+>    asp_err = do
+>      errors <- errors_ag
+>      if null errors then asp_ag
+>      else throwError $ Errors errors
 >    asp_ar = traverse runAR asp -- A (Production :-> R OutAttrs)
 >    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
 >    err = error "[BUG] runAspect: unexpected use of production."
@@ -1093,6 +1119,7 @@ of `inh' and `syn').
 >   | Error_Tree_Invalid_Terminals (AttrSet T)
 >   | Error_Tree_Missing_Terminals (AttrSet T)
 >   | Error_RunTree_Missing (Set Require_I)
+>   | Errors [Error]
 >   deriving Show
 
  - `Error_Rule_Invalid_Child c p' ::
