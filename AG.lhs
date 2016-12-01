@@ -68,12 +68,20 @@ mtl-2.2.1
 - Performance comparison with UUAG
 
 ** Discussion
+
+*** Collecting errors
+Note that the errors are reported per rule, not per aspect,
+which means that we stop after the first rule fails.  In
+order to collect errors we need to write a new `traverse'
+function and use it in `runAspect'.
+
 *** Merging aspect: duplicated rules.
+
 Now that merging duplicated rules is an error,
 we might want a way to remove some rules from an aspect
 and maybe to rename attributes.
 
-*** Deletion
+*** DONE Deletion
 Deletion would involve deleting from the OutAttrs map, and
 deleting from the context as well.
 
@@ -1005,7 +1013,8 @@ if this definition is not provided by `rule'.
 > inAspect f (Aspect x) = Aspect (f x)
 > inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
 > emptyAspect = Aspect $ Map.empty
-> mergeAspect :: Op Aspect
+
+> mergeAspect :: Aspect -> Aspect -> Aspect
 > mergeAspect = inAspect2 $ Map.unionWith mergeRule
 
 > instance Monoid Aspect where
@@ -1041,7 +1050,7 @@ of `inh' and `syn').
 > runAspect :: Aspect -> (AG PureAspect, Context)
 > runAspect (Aspect asp) = runA asp_a err
 >  where
->    asp_ar = traverse runAR  asp -- A (Production :-> R OutAttrs)
+>    asp_ar = traverse runAR asp -- A (Production :-> R OutAttrs)
 >    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
 >    err = error "[BUG] runAspect: unexpected use of production."
 
