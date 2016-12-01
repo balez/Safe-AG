@@ -124,15 +124,15 @@ The same grammar is written as follows:
 Remember the priority of merging is left to right, so copy
 must be given last.
 
-> repminR = gminR & locminR & ntreeR
+> repminR = gminR # locminR # ntreeR
 
 > gminR = inh gmin startTree (startTree!locmin)
->         & copyP gmin fork
+>         # copyP gmin fork
 
 > locminR = syns locmin
 >           [ leaf |- ter val
 >           , start |- startTree!locmin]
->   & collectAll locmin minimum fork
+>   # collectAll locmin minimum fork
 
 > ntreeR = syns ntree
 >   [ leaf |- liftA Leaf (par gmin)
@@ -158,7 +158,7 @@ must be given last.
 > tailf = attr "tail" I (pList pInt)
 > flat = attr "flat" S (pList pInt)
 
-> flattenR = flatR & tailR
+> flattenR = flatR # tailR
 
 > flatR = syns flat
 >     [ start |- startTree!flat

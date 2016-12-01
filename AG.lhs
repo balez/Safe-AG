@@ -101,9 +101,13 @@ can implement a very flexible namespace system.
 
 > module AG
 
+*** Monoids
+
+> ( (#)
+
 *** General trees
 
-> ( Tree, InputTree, node
+> , Tree, InputTree, node, (|->), (\/)
 
 *** Context free grammar
 **** Types
@@ -116,7 +120,7 @@ can implement a very flexible namespace system.
 
 **** Accessors
 
-> , prod_children, child_prod, gram_children
+> , prod_nt, prod_children, child_prod, gram_children
 
 **** DSL
 
@@ -129,14 +133,13 @@ can implement a very flexible namespace system.
 > , Attr, attr
 > , Kind(..), I, S, T
 
-> , Attrs, lookup_attrs, (|=>), (|->), (\/)
+> , Attrs, single_attr, (|=>), empty_attrs, merge_attrs, lookup_attrs -- Monoid
 
 *** Constraints, Contexts, Errors
 
---> , Context, complete, Missing, missing
+We keep the context and errors abstract, we can only `show' them.
 
-We keep the errors abstract, we can only `show' them.
-
+> , Context, Missing -- Show
 > , Error -- Show
 
 *** Aspects
@@ -147,7 +150,7 @@ We keep the errors abstract, we can only `show' them.
 
 **** Accessors
 
-> , context, check_aspect, check_ag
+> , context, check_aspect, missing
 
 **** Attribute projections
 
@@ -156,7 +159,7 @@ We keep the errors abstract, we can only `show' them.
 **** Aspect constructors
 
 > , inh, syn, inhs, syns, (|-)
-> , (&), emptyAspect, mergeAspect, concatAspects
+> , emptyAspect, mergeAspect, concatAspects
 
 **** Generic rules
 
@@ -172,12 +175,12 @@ We keep the errors abstract, we can only `show' them.
 
 ***** Inherited attributes
 
-> , AttrDesc, emptyAttrDesc, (#) -- Monoid
-> , InhDesc, empty_I, embed_I -- Monoid
+> , AttrDesc, emptyAttrDesc, mergeAttrDesc -- Monoid
+> , InhDesc, embed_I -- Monoid
 
 ***** Terminal attributes
 
-> , TermDesc, empty_T, embed_T -- Monoid
+> , TermDesc, embed_T -- Monoid
 
 ***** Tree
 
@@ -186,13 +189,8 @@ We keep the errors abstract, we can only `show' them.
 
 **** Checking and Running
 
-> , AG, runAG
-> , run
-
-Note: in order to make `runTree` public, we need to make
-`AttrMap` an abstract type. (so far it is a type synonym)
-
-> , runTree
+> , AG, runAG, check_ag
+> , run , runTree
 
 > )
 > where
@@ -264,9 +262,11 @@ Type of binary operators
 
 > type Op a = a -> a -> a
 
-> infixr 1 <+>
-> (<+>) :: Monoid a => Op a
-> (<+>) = mappend
+Not used.
+
+> infixr 1 #
+> (#) :: Monoid a => Op a
+> (#) = mappend
 
 Pointwise application for finite maps.
 The result is defined on the intersection of the arguments.
@@ -772,12 +772,12 @@ defined in the grammar.
 *** Missing rules
 The missing `ensure` constraints for the rules to be complete.
 
-> type Missing = (Set Ensure_I, Set Ensure_S, Set Ensure_T)
-> nullMissing (x,y,z) = Set.null x && Set.null y && Set.null z
+> newtype Missing = Missing (Set Ensure_I, Set Ensure_S, Set Ensure_T) deriving Show
+> nullMissing (Missing (x,y,z)) = Set.null x && Set.null y && Set.null z
 
 > missing ::
 >   Grammar -> Context -> Missing
-> missing g c =
+> missing g c = Missing
 >   ( unionSets (missing_I (gram_children g) (ensure_I c)) (require_I c)
 >   , unionSets (missing_S g (ensure_S c)) (require_S c)
 >   , missing_T (ensure_T g) (require_T c))
@@ -950,7 +950,6 @@ Merging rules whose domain overlap is an error.
 > emptyAspect = Aspect $ Map.empty
 > mergeAspect :: Op Aspect
 > mergeAspect = inAspect2 $ Map.unionWith mergeRule
-> (&) = mergeAspect
 
 > instance Monoid Aspect where
 >   mempty = emptyAspect
@@ -1099,7 +1098,7 @@ we need to add a Production as an argument.
 >   $ \attrs -> (emptyAttrs, c |-> attrs)
 
 > inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Aspect
-> inhs a = foldl (\rs (c,r) -> rs & inh a c r) emptyAspect
+> inhs a = foldl (\rs (c,r) -> rs # inh a c r) emptyAspect
 
 Synthesized attributes are defined for the parent of a production.
 
@@ -1108,7 +1107,7 @@ Synthesized attributes are defined for the parent of a production.
 >   $ \attrs -> (attrs, emptyChildrenAttrs)
 
 > syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Aspect
-> syns a = foldl (\rs (p,r) -> rs & syn a p r) emptyAspect
+> syns a = foldl (\rs (p,r) -> rs # syn a p r) emptyAspect
 
 * Generic rules
 
@@ -1136,7 +1135,7 @@ the children that have the same non-terminal.
 grammar.
 
 > copyG :: Typeable a => Attr I a -> Grammar -> Aspect
-> copyG a = Set.foldr (\p r -> copyP a p & r) emptyAspect
+> copyG a = Set.foldr (\p r -> copyP a p # r) emptyAspect
 
 `copyGN' only implements the copy rule for the given
 nonterminal, but applies it to all the productions in the grammar.
@@ -1182,7 +1181,7 @@ the children and the synthesized attribute for the parent.
 >   Attr I a -> Attr S a -> Production -> Children -> Aspect
 > chain i s p cs =
 >   (inhs i $ zip cs $ par i : ((!s) <$> init cs))
->   & syn s p (last cs ! s)
+>   # syn s p (last cs ! s)
 
 Applies the chain rule the children of a production having
 the given (non-terminal).
@@ -1253,12 +1252,6 @@ will be instanciated with `I' or `T' depending on the case.
 > emptyAttrDesc :: AttrDesc k t
 > emptyAttrDesc = AttrDesc $ return $ pure $ Map.empty
 
-> empty_I :: InhDesc i
-> empty_I = emptyAttrDesc
-
-> empty_T :: TermDesc t
-> empty_T = emptyAttrDesc
-
 > embed_I :: Typeable a =>
 >   Attr I a -> (i -> a) -> InhDesc i
 > embed_I a p = embed_dyn a (toDyn . p)
@@ -1268,11 +1261,15 @@ will be instanciated with `I' or `T' depending on the case.
 > embed_T a p = embed_dyn a (toDyn . fromMaybe err . p)
 >   where err = error $ "[BUG] embed_T: match error to compute terminal: " ++ show a
 
-> (#) :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t
-> AttrDesc x # AttrDesc y =
+> mergeAttrDesc :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t
+> AttrDesc x `mergeAttrDesc` AttrDesc y =
 >   AttrDesc $ liftA2 union x y
 >  where
 >    union f g = \x -> Map.union (f x) (g x)
+
+> instance Monoid (AttrDesc k t) where
+>   mempty = emptyAttrDesc
+>   mappend = mergeAttrDesc
 
 **** Private
 
@@ -1677,8 +1674,15 @@ Abstract type for attributions.
 > newtype Attrs k = Attrs {fromAttrs :: AttrMap k} deriving (Monoid)
 > lookup_attrs :: (Typeable a) => Attr k a -> Attrs k -> Maybe a
 > lookup_attrs a = lookupAttr a . fromAttrs
-> (|=>) :: Typeable a => Attr k a -> a -> Attrs k
-> a |=> x = Attrs $ singleAttr a x
+
+> infix 2 |=>
+> single_attr, (|=>) :: Typeable a => Attr k a -> a -> Attrs k
+> single_attr a x = Attrs $ singleAttr a x
+> (|=>) = single_attr
+> empty_attrs :: Attrs k
+> empty_attrs = mempty
+> merge_attrs :: Op (Attrs k)
+> merge_attrs = mappend
 
 > node ::
 >   Production -> Child :-> InputTree -> Attrs T -> InputTree
