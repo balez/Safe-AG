@@ -69,18 +69,9 @@ mtl-2.2.1
 
 ** Discussion
 *** Merging aspect: duplicated rules.
-I(Flo) think it is desirable that duplicated rules are
-flagged as errors. So far, the merging aspect operator (&)
-gives a preference to the left. Making the change is not to
-complicated: instead of keeping sets of "Ensure" contraints,
-we keep lists.
-
-We might also need a way to remove some rules from an aspect
-and maybe to rename attributes.  I'm not sure if deletion and
-renaming are so important because we could always manipulate
-small aspects so that such conflicts never arise: rather than
-combining first and deleting later we could just recombine
-the small bits.
+Now that merging duplicated rules is an error,
+we might want a way to remove some rules from an aspect
+and maybe to rename attributes.
 
 *** Deletion
 Deletion would involve deleting from the OutAttrs map, and
@@ -108,11 +99,107 @@ can implement a very flexible namespace system.
   SEE any `Dynamic', always concrete types.
 - the user should never SEE Attribute, only `Attr k a'
 
-> module AG where
+> module AG
+
+*** General trees
+
+> ( Tree, InputTree, node
+
+*** Context free grammar
+**** Types
+
+> , Grammar, NonTerminal, Production, Child, Children, Terminals, Name
+
+**** Constructors
+
+> , non_terminal, production, child, nilT, consT
+
+**** Accessors
+
+> , prod_children, child_prod, gram_children
+
+**** DSL
+
+> , GrammarSpec, NTSpec((::=)), ProdSpecs((:@),(:|))
+> , ChildSpec((:::)), ChildrenSpec, ChildTermSpec((:&))
+> , grammar, productions
+
+*** Attributes
+
+> , Attr, attr
+> , Kind(..), I, S, T
+
+> , Attrs, lookup_attrs, (|=>), (|->), (\/)
+
+*** Constraints, Contexts, Errors
+
+--> , Context, complete, Missing, missing
+
+We keep the errors abstract, we can only `show' them.
+
+> , Error -- Show
+
+*** Aspects
+**** Types
+
+> , AR -- Applicative, Functor
+> , Aspect -- Monoid
+
+**** Accessors
+
+> , context, check_aspect, check_ag
+
+**** Attribute projections
+
+> , (?),(!), chiM, chi, parM, par, terM, ter
+
+**** Aspect constructors
+
+> , inh, syn, inhs, syns, (|-)
+> , (&), emptyAspect, mergeAspect, concatAspects
+
+**** Generic rules
+
+> , copy, copyN, copyP, copyG, copyGN
+> , collect, collectAll, collectP
+> , chain, chainN, chainP
+
+*** Running the AG
+**** Specification
+***** Synthesized attributes
+
+> , SynDesc, project
+
+***** Inherited attributes
+
+> , AttrDesc, emptyAttrDesc, (#) -- Monoid
+> , InhDesc, empty_I, embed_I -- Monoid
+
+***** Terminal attributes
+
+> , TermDesc, empty_T, embed_T -- Monoid
+
+***** Tree
+
+> , ChildDesc, childDesc, ProdDesc, prodDesc, NtDesc, ntDesc
+> , GramDesc, gramDesc, insert_nt
+
+**** Checking and Running
+
+> , AG, runAG
+> , run
+
+Note: in order to make `runTree` public, we need to make
+`AttrMap` an abstract type. (so far it is a type synonym)
+
+> , runTree
+
+> )
+> where
 
 ** Module Imports
 
-> import Prelude hiding (all, sequence)
+> import Prelude hiding (all, sequence, lookup)
 > import Control.Applicative
 > import Control.Monad.Except hiding (sequence)
 > import Control.Monad.Trans.Except (except)
@@ -164,6 +251,10 @@ can implement a very flexible namespace system.
 
 > infixr 2 |->, |-
 > (|->) = Map.singleton
+> infixr 1 \/
+> (\/) :: Ord k => Op (k :-> a)
+> (\/) = Map.union
+
 
 Nicer pairs for association lists [(a,b)]
 
@@ -172,10 +263,6 @@ Nicer pairs for association lists [(a,b)]
 Type of binary operators
 
 > type Op a = a -> a -> a
-
-> infixr 1 \/
-> (\/) :: Ord k => Op (k :-> a)
-> (\/) = Map.union
 
 > infixr 1 <+>
 > (<+>) :: Monoid a => Op a
@@ -274,6 +361,12 @@ The `AttrMap' field introduces the terminal data.
 > prod_children :: Production -> Children
 > prod_children p = map (prod_child p) $ prod_orphans p
 
+> prod_nt :: Production -> NonTerminal
+> prod_nt = fst . prod_name
+
+> child_prod :: Child -> Production
+> child_prod = fst . child_name
+
 > orphan :: Child -> Orphan
 > orphan c = (snd (child_name c), child_nt c)
 > orphans = map orphan
@@ -307,9 +400,6 @@ different fully qualified name).
 
 > child :: Production -> Name -> NonTerminal -> Child
 > child p c n = Child (p, c) n
-
-> prod_nt = fst . prod_name
-> child_prod = fst . child_name
 
 ** DSL for creating the grammar
 *** Datatypes for the DSL
@@ -514,8 +604,8 @@ only be called after the AG has been typechecked at runtime.
 
 > projAttr :: Typeable a => AttrMap k -> Attr k a -> Maybe a
 > projAttr = flip lookupAttr
-> (|=>) :: Typeable a => Attr k a -> a -> AttrMap k
-> a |=> x = Attribute a |-> toDyn x
+> singleAttr :: Typeable a => Attr k a -> a -> AttrMap k
+> singleAttr a x = Attribute a |-> toDyn x
 
 **** Parent, children and terminal attributions.
 
@@ -837,7 +927,7 @@ computing the context.
 > emptyRule = pure emptyOutAttrs
 
 Merging rules whose domain overlap is an error.
- 
+
 > mergeRule :: Op Rule
 > mergeRule left_rule right_rule
 >   | not (Set.null duplicate_inh) =
@@ -996,7 +1086,7 @@ evaluation of the attribute.
 >     rule' <- local (const production) (constraint >> runAR rule)
 >     return $ fam' <$> rule'
 >   where
->     fam' x = fam (attr |=> x)
+>     fam' x = fam $ singleAttr attr x
 
 Inherited attributes are defined for a specific child of a
 production.  The production is determined by the Child.
@@ -1063,7 +1153,8 @@ to compute a synthesized attribute.
 >   reduce <$> traverse (!a) cs
 
 `collectAll' applies the function to all the attributes for
-all children that implement it.
+all children that implement it. It doesn't add any require
+constraints.
 
 > collectAll :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectAll a reduce p = syn a p $
@@ -1094,11 +1185,11 @@ the children and the synthesized attribute for the parent.
 >   & syn s p (last cs ! s)
 
 Applies the chain rule the children of a production having
-the given non-terminal.
+the given (non-terminal).
 
-> chainNs :: Typeable a =>
+> chainN :: Typeable a =>
 >   Attr I a -> Attr S a -> Production -> [NonTerminal] -> Aspect
-> chainNs i s p ns = chain i s p cs
+> chainN i s p ns = chain i s p cs
 >   where cs = [ c | c <- prod_children p, child_nt c `elem` ns]
 
 Applies the chain rule the children of a production having
@@ -1106,7 +1197,7 @@ the same non-terminal as the parent.
 
 > chainP :: Typeable a =>
 >   Attr I a -> Attr S a -> Production -> Aspect
-> chainP i s p = chainNs i s p [prod_nt p]
+> chainP i s p = chainN i s p [prod_nt p]
 
 * Running the grammar
 ** Specifying input and output
@@ -1161,6 +1252,12 @@ will be instanciated with `I' or `T' depending on the case.
 
 > emptyAttrDesc :: AttrDesc k t
 > emptyAttrDesc = AttrDesc $ return $ pure $ Map.empty
+
+> empty_I :: InhDesc i
+> empty_I = emptyAttrDesc
+
+> empty_T :: TermDesc t
+> empty_T = emptyAttrDesc
 
 > embed_I :: Typeable a =>
 >   Attr I a -> (i -> a) -> InhDesc i
@@ -1575,16 +1672,28 @@ attributes are defined.
 
 ** Running an AG on a general tree
 
+Abstract type for attributions.
+
+> newtype Attrs k = Attrs {fromAttrs :: AttrMap k} deriving (Monoid)
+> lookup_attrs :: (Typeable a) => Attr k a -> Attrs k -> Maybe a
+> lookup_attrs a = lookupAttr a . fromAttrs
+> (|=>) :: Typeable a => Attr k a -> a -> Attrs k
+> a |=> x = Attrs $ singleAttr a x
+
+> node ::
+>   Production -> Child :-> InputTree -> Attrs T -> InputTree
+> node p cs = Node p cs . fromAttrs
+
 > runTree ::
->   Aspect -> NonTerminal -> InputTree -> AttrMap I -> AG (AttrMap S)
-> runTree aspect root tree inhattrs = do
+>   Aspect -> NonTerminal -> InputTree -> Attrs I -> AG (Attrs S)
+> runTree aspect root tree (Attrs inhattrs) = do
 >   gram <- tree_gram tree
 >   check_grammar gram
 >   let (check_aspect, ctx) = runAspect aspect
 >   pure_asp <- check_aspect
 >   check_missing (missing gram ctx)
 >   check_attrs Error_RunTree_Missing (Map.keysSet inhattrs) root (require_I ctx)
->   return $ unsafe_run pure_asp tree inhattrs
+>   return $ Attrs $ unsafe_run pure_asp tree inhattrs
 
 ** Semantics
 

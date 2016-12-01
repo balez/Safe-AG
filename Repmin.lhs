@@ -215,15 +215,17 @@ Trying the error system
 ** General Tree
 
 > exampleTree = s ((l 3 * l 1) * (l 4 * (l 1 * l 2)))
->   where s x = Node start (startTree |-> x) emptyAttrs
->         x * y = Node fork (leftTree |-> x \/ rightTree |-> y) emptyAttrs
->         l x = Node leaf Map.empty (val |=> x)
+>   where s x = node start (startTree |-> x) mempty
+>         x * y = node fork (leftTree |-> x \/ rightTree |-> y) mempty
+>         l x = node leaf Map.empty (val |=> x)
 
 * Testing the general trees
 
-> runTreeAG ag attr x = case runAG $ runTree ag root x Map.empty of
+> runTreeAG ag attr x = case runAG $ runTree ag root x mempty of
 >   Left err -> print err
->   Right s -> print $ s `projAttr` attr
+>   Right s -> print $ s ! attr
+>  where m ! x = fromJust $ lookup_attrs x m
+>        fromJust (Just x) = x
 
 * Local variables for emacs
 Local Variables:
