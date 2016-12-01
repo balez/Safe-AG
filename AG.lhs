@@ -526,16 +526,22 @@ only be called after the AG has been typechecked at runtime.
 > mergeChildrenAttrs x y =
 >   Map.unionWith mergeAttrs x y
 
-**** Family of attribution
+**** Input and output attributes
 
-Attributions for the parent of the node, for the children and
-the terminals.  (Not all children need to be given an
-attribute).  Families are used as input and output of rules,
-however the terminal attributes are only used
-as input. In the output, the terminal map will always be
-empty.
+A rule is a function that computes the attributes of a
+production, it is a map from input attributes to output
+attributes.
+
+The input attributes consists of the inherited attributes for
+the parent of the production, the synthesized
+attributes of the children and the terminal attributes.
 
 > type InAttrs = (AttrMap I, ChildrenAttrs S, AttrMap T)
+
+The output attributes consists of the synthesized attributes
+for the parent of the production and the inherited attributes
+of the children.
+
 > type OutAttrs = (AttrMap S, ChildrenAttrs I)
 
 > parentAttrs :: InAttrs -> AttrMap I
@@ -549,6 +555,13 @@ empty.
 > emptyOutAttrs :: OutAttrs
 > emptyOutAttrs =
 >   (emptyAttrs, emptyChildrenAttrs)
+
+Note: merging the output attributes is not symmetrical: the
+left attribution has priority over the right attribution in
+case of a conflict, i.e. when the same attribute is given a
+value by both attributions, the left definition will be
+chosen over the right one. However, the primitive to merge
+rules will throw an error if any conflict occurs.
 
 > mergeOutAttrs :: Op OutAttrs
 > mergeOutAttrs (x, xs) (y, ys) =
@@ -767,8 +780,8 @@ parent, the children, or the terminal data..
 
 To capture this information we will use monads.
 
-In order to gather information from the use of input family, we
-must define rule in a specific monad in which the input family
+In order to gather information from the use of input attributes, we
+must define rule in a specific monad in which the input attributes
 is accessed through primitives.
 
 > newtype R a = R {runR :: Reader InAttrs a} -- the rule monad
@@ -777,8 +790,7 @@ is accessed through primitives.
 In order to compute rules, we must first check that they are
 valid.  Rules are defined in the context of a production, and
 may fail if some constraints are not met, like using a child
-that is not a valid child of the current production. Or an
-attribute with the wrong type.
+that is not a valid child of the current production.
 And lastly, we collect constraints.
 
 > newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the aspect monad
@@ -817,11 +829,28 @@ computing the context.
 > type PureRule = InAttrs -> OutAttrs
 > type Rule = AR OutAttrs
 
+> rule_context :: Rule -> Context
+> rule_context (AR r) = snd $ runA r err
+>   where err = error "[BUG] rule_context: unexpected use of production."
+
 > emptyRule :: Rule
 > emptyRule = pure emptyOutAttrs
 
+Merging rules whose domain overlap is an error.
+ 
 > mergeRule :: Op Rule
-> mergeRule = liftA2 mergeOutAttrs
+> mergeRule left_rule right_rule
+>   | not (Set.null duplicate_inh) =
+>        AR $ throwError $ Error_MergeRule_Duplicate_I duplicate_inh
+>   | not (Set.null duplicate_syn) =
+>        AR $ throwError $ Error_MergeRule_Duplicate_S duplicate_syn
+>   | otherwise = liftA2 mergeOutAttrs left_rule right_rule
+>   where
+>     left_ctx = rule_context left_rule
+>     right_ctx = rule_context right_rule
+>     dup proj = (Set.intersection `on` proj) left_ctx right_ctx
+>     duplicate_inh = dup ensure_I
+>     duplicate_syn = dup ensure_S
 
 ** Aspect
 
@@ -855,11 +884,19 @@ of `inh' and `syn').
 > context :: Aspect -> Context
 > context = snd . runAspect
 
+> check_aspect :: Aspect -> AG ()
+> check_aspect a = () <$ fst (runAspect a)
+
+> check_ag :: AG x -> Maybe Error
+> check_ag = either Just (const Nothing) . runAG
+
 * Error datatype
 
 > data Error
 >   = Error_Rule_Invalid_Child Child Production
 >   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
+>   | Error_MergeRule_Duplicate_I (Set Ensure_I)
+>   | Error_MergeRule_Duplicate_S (Set Ensure_S)
 >   | Error_InhDesc_Duplicate [Attribute I] -- raised when checking InhDesc
 >   | Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
 >   | Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
