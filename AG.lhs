@@ -198,7 +198,7 @@ We keep the context and errors abstract, we can only `show' them.
 
 **** Checking and Running
 
-> , AG, runAG, check_ag
+> , Check
 > , run , runTree
 
 > )
@@ -923,11 +923,9 @@ And lastly, we collect constraints.
 
 private
 
-> runA :: A a -> Production -> (AG a, Context)
+> runA :: A a -> Production -> (Check a, Context)
 > runA (A a) p =
->   ag . runWriter . runExceptT $ runReaderT a p
->   where
->     ag (e, c) = (AG (except e), c)
+>   runWriter . runExceptT $ runReaderT a p
 
 > current_production :: A Production
 > current_production = ask
@@ -1067,7 +1065,7 @@ override the production with a call to `local' (see the code
 of `inh' and `syn').
 Note: we collect the errors from each production.
 
-> runAspect :: Aspect -> (AG PureAspect, Context)
+> runAspect :: Aspect -> (Check PureAspect, Context)
 > runAspect (Aspect asp) = (asp_err, ctx)
 >  where
 >    errors_ag = fst $ runA (collect_errors $ runAR <$> asp) err
@@ -1083,11 +1081,8 @@ Note: we collect the errors from each production.
 > context :: Aspect -> Context
 > context = snd . runAspect
 
-> check_aspect :: Aspect -> AG ()
+> check_aspect :: Aspect -> Check ()
 > check_aspect a = () <$ fst (runAspect a)
-
-> check_ag :: AG x -> Maybe Error
-> check_ag = either Just (const Nothing) . runAG
 
 * Error datatype
 
@@ -1465,7 +1460,7 @@ a pattern matching which is the reason it might fail.
 as a grammar production).
 
 > newtype ProdDesc t = ProdDesc { runProdDesc ::
->   AG (ProdDescRec t) }
+>   Check (ProdDescRec t) }
 
 > data ProdDescRec t = ProdDescRec
 >   { prodDesc_prod :: Production
@@ -1522,7 +1517,7 @@ them.
 `prodDesc'.
 
 > check_attr_unique ::
->   ([Attribute k] -> Error) -> AttrDesc k t -> AG ()
+>   ([Attribute k] -> Error) -> AttrDesc k t -> Check ()
 > check_attr_unique err desc
 >   | null xs' = return ()
 >   | otherwise = throwError $ err xs'
@@ -1535,7 +1530,7 @@ them.
 `NtDesc a' associates a non-terminal to the datatype `a'
 
 > newtype NtDesc t = NtDesc { runNtDesc ::
->   AG (NtDescRec t) }
+>   Check (NtDescRec t) }
 
 > data NtDescRec t = NtDescRec
 >   { ntDesc_nt :: NonTerminal
@@ -1556,7 +1551,7 @@ them.
 > ntDesc nonterm agps =
 >   NtDesc $ this =<< sequence (runProdDesc <$> agps)
 >  where
->   this :: [ProdDescRec a] -> AG (NtDescRec a)
+>   this :: [ProdDescRec a] -> Check (NtDescRec a)
 >   this ps
 >    | not (null duplicate_prods) =
 >        throwError $ Error_NtDesc_Duplicate_Productions duplicate_prods nonterm
@@ -1588,7 +1583,7 @@ root of the tree will have type `a'.
   the typeRep associated with each `childDesc'.
 
 > newtype GramDesc a = GramDesc { runGramDesc ::
->   AG (NonTerminal, Grammar, Child :-> TypeRep, GramMap) }
+>   Check (NonTerminal, Grammar, Child :-> TypeRep, GramMap) }
 
 > type GramMap = NonTerminal :-> (TypeRep, Dynamic -> Match)
 
@@ -1623,18 +1618,14 @@ Private
 
 ** Checking the AG
 
-The AG monad
+The Check monad
 
-> newtype AG a = AG (Except Error a)
->   deriving (Functor, Applicative, Monad, MonadError Error)
-
-> runAG :: AG a -> Either Error a
-> runAG (AG m) = runExcept m
+> type Check a = Either Error a
 
 Unique attributes
 
 > check_inh_unique ::
->   InhDesc i -> AG ()
+>   InhDesc i -> Check ()
 > check_inh_unique =
 >   check_attr_unique Error_InhDesc_Duplicate
 
@@ -1642,7 +1633,7 @@ All the required inherited attributes have been specified for
 the root.
 
 > check_inh_required ::
->   InhDesc i -> NonTerminal -> Set Require_I -> AG ()
+>   InhDesc i -> NonTerminal -> Set Require_I -> Check ()
 > check_inh_required =
 >   check_attrs Error_InhDesc_Missing . inhAttrs
 >   where
@@ -1653,7 +1644,7 @@ All the synthesized attributes accessed from the root are
 ensured by the rules.
 
 > check_syn_ensured ::
->   SynDesc s -> Grammar -> NonTerminal -> Set Ensure_S -> AG ()
+>   SynDesc s -> Grammar -> NonTerminal -> Set Ensure_S -> Check ()
 > check_syn_ensured desc prods root ens
 >   | Set.null missing = return ()
 >   | otherwise = throwError $ Error_SynDesc_Missing missing
@@ -1667,14 +1658,14 @@ The non-terminal associated with each child must correspond
 with the typeRep associated with each `childDesc'.
 
 > check_gramDesc ::
->   GramDesc a -> AG (NonTerminal, Grammar, GramMap)
+>   GramDesc a -> Check (NonTerminal, Grammar, GramMap)
 > check_gramDesc (GramDesc g) = do
 >   (nt, gram, ctypes, grammap) <- g
 >   check_children_types ctypes grammap
 >   return $ (nt, gram, grammap)
 
 > check_children_types ::
->   Child :-> TypeRep -> GramMap -> AG ()
+>   Child :-> TypeRep -> GramMap -> Check ()
 > check_children_types types gram
 >   | not (Set.null missing) =
 >       throwError $ Error_GramDesc_Missing missing
@@ -1689,7 +1680,7 @@ with the typeRep associated with each `childDesc'.
 >    wrong_type c t = fst (gram ! child_nt c) /= t -- well-defined if Set.null missing
 
 > check_missing ::
->   Missing -> AG ()
+>   Missing -> Check ()
 > check_missing missing
 >   | not (nullMissing missing) = throwError $ Error_Missing missing
 >   | otherwise = return ()
@@ -1697,11 +1688,11 @@ with the typeRep associated with each `childDesc'.
 We check that the children have unique names for each production.
 
 > check_grammar ::
->   Grammar -> AG ()
+>   Grammar -> Check ()
 > check_grammar = traverse_ check_production
 
 > check_production ::
->   Production -> AG ()
+>   Production -> Check ()
 > check_production prod
 >   | not (null dup) =
 >       throwError $ Error_Production_Duplicate_Children_Names dup prod
@@ -1712,7 +1703,7 @@ We check that the children have unique names for each production.
 Check the whole AG.
 
 > check ::
->   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (NonTerminal, PureAspect, Coalg)
+>   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> Check (NonTerminal, PureAspect, Coalg)
 > check g i s r = do
 >   (root, grammar, gmap) <- check_gramDesc g
 >   check_grammar grammar
@@ -1725,7 +1716,7 @@ Check the whole AG.
 >   return (root, pure_asp, coalg gmap)
 
 > run :: Typeable t =>
->   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> AG (t -> i -> s)
+>   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> Check (t -> i -> s)
 > run g i s a = do
 >   (root, pure_asp, coalg) <- check g i s a
 >   let sem = sem_coalg (Map.map sem_prod pure_asp) coalg root . toDynP g
@@ -1739,7 +1730,7 @@ Check the whole AG.
 Before we can execute an AG on a general tree, we must see if
 the tree is compatible with the grammar.
 
-> tree_gram :: InputTree -> AG Grammar
+> tree_gram :: InputTree -> Check Grammar
 > tree_gram (Node prod cs ts)
 >   | not (Set.null invalid_children) =
 >       throwError $ Error_Tree_Invalid_Children invalid_children
@@ -1770,7 +1761,7 @@ attributes are defined.
 
 > check_attrs ::
 >   (Set Require_I -> Error) ->
->   AttrSet I  -> NonTerminal -> Set Require_I -> AG ()
+>   AttrSet I  -> NonTerminal -> Set Require_I -> Check ()
 > check_attrs err attrs root req
 >   | Set.null missing = return ()
 >   | otherwise = throwError $ err missing
@@ -1802,7 +1793,7 @@ Abstract type for attributions.
 > node p cs = Node p cs . fromAttrs
 
 > runTree ::
->   Aspect -> NonTerminal -> InputTree -> Attrs I -> AG (Attrs S)
+>   Aspect -> NonTerminal -> InputTree -> Attrs I -> Check (Attrs S)
 > runTree aspect root tree (Attrs inhattrs) = do
 >   gram <- tree_gram tree
 >   check_grammar gram
