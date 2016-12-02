@@ -60,15 +60,18 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
+- debug the error when running locminR and heightR in Repmin.lhs
 - Add locations to errors
 - Pretty printer for errors
 - Template haskell to generate grammar, bindings, gramDesc
 - Reorganise source code for a better presentation (easier to read an understand).
 - Longer, real-world examples
 - Performance comparison with UUAG
-
+- Detecting dependencies, multi-pass execution.
 ** Discussion
 
+*** More caution with invalid Children
+Defining children of a production that are not in the list of orphans.
 *** Collecting errors
 Note that the errors are reported per rule, not per aspect,
 which means that we stop after the first rule fails.  In
@@ -91,6 +94,7 @@ base name and a renaming function. The R monad would also
 have a reader for the renaming function. Using this system we
 can implement a very flexible namespace system.
 
+
 * Header
 ** GHC Extensions
 
@@ -111,7 +115,7 @@ can implement a very flexible namespace system.
 
 *** Monoids
 
-> ( (#)
+> {- ((#)
 
 *** General trees
 
@@ -201,7 +205,7 @@ We keep the context and errors abstract, we can only `show' them.
 > , Check
 > , run , runTree
 
-> )
+> ) -}
 > where
 
 ** Module Imports
@@ -383,11 +387,9 @@ The `AttrMap' field introduces the terminal data.
 
 *** Misc functions
 
-> prod_child :: Production -> Orphan -> Child
-> prod_child p (c,n) = Child (p,c) n
-
 > prod_children :: Production -> Children
-> prod_children p = map (prod_child p) $ prod_orphans p
+> prod_children p = adopt <$> prod_orphans p
+>   where adopt (c,n) = Child (p,c) n
 
 > prod_nt :: Production -> NonTerminal
 > prod_nt = fst . prod_name
@@ -569,7 +571,7 @@ then they are different: only their names are overloaded.
 > data Attribute k where
 >   Attribute :: Typeable a => Attr k a -> Attribute k
 
-**** Eq, Ord
+**** Eq, Ord, Show
 WARNING: what if two attributes with the same name and
 different types are used? If we consider them equal then the
 value associated to the name could change type.  If we
@@ -598,7 +600,7 @@ attributes by their types.
 > instance Ord (Attribute k) where
 >   Attribute x `compare` Attribute y  =  x `compareAttr` y
 
-> instance Typeable a => Show (Attr k a) where
+> instance Show (Attr k a) where
 >   show = attr_name
 
 > instance Show (Attribute k) where
@@ -817,25 +819,19 @@ The missing `ensure` constraints for the rules to be complete.
 >   , unionSets (missing_S g (ensure_S c)) (require_S c)
 >   , missing_T (ensure_T g) (require_T c))
 
-> missing_I :: Set Child -> Set Ensure_I -> Require_I -> Set Ensure_I
-> missing_I children ensure r@(Constraint a n) =
->   Set.difference match_children match_ensure
->   where
->     match_children =
+> missing_K :: (Ord a) =>
+>   (a -> NonTerminal) -> Set a -> Set (Constraint k a) -> Constraint k NonTerminal -> Set (Constraint k a)
+> missing_K proj_nt object ensure r@(Constraint a n) =
+>   Set.difference match_object match_ensure
+>  where
+>     match_object =
 >       Set.map (<$ r)
->        $ Set.filter ((== n) . child_nt) children
+>        $ Set.filter ((== n) . proj_nt) object
 >     match_ensure =
->       Set.filter ((== r) . fmap child_nt) ensure
+>       Set.filter ((== r) . fmap proj_nt) ensure
 
-> missing_S :: Set Production -> Set Ensure_S -> Require_S -> Set Ensure_S
-> missing_S prods ensure r@(Constraint a n) =
->   Set.difference match_prods match_ensure
->   where
->     match_prods =
->       Set.map (<$ r)
->        $ Set.filter ((== n) . prod_nt) prods
->     match_ensure =
->       Set.filter ((== r) . fmap prod_nt) ensure
+> missing_I = missing_K child_nt
+> missing_S = missing_K prod_nt
 
 This case is different from S, and I since the terminal
 attributes are not associated with non-terminals but with
@@ -964,12 +960,12 @@ Rule is private.
 
 Merging rules whose domain overlap is an error.
 
-> mergeRule :: Op Rule
+> mergeRule :: HasCallStack => Op Rule
 > mergeRule left_rule right_rule
 >   | not (Set.null duplicate_inh) =
->       AR $ throwError $ Error_Rule_Merge_Duplicate_I duplicate_inh
+>       AR $ throwError $ Error_Rule_Merge_Duplicate_I callStack duplicate_inh
 >   | not (Set.null duplicate_syn) =
->       AR $ throwError $ Error_Rule_Merge_Duplicate_S duplicate_syn
+>       AR $ throwError $ Error_Rule_Merge_Duplicate_S callStack duplicate_syn
 >   | otherwise = liftA2 mergeOutAttrs left_rule right_rule
 >   where
 >     left_ctx = rule_context left_rule
@@ -1089,8 +1085,8 @@ Note: we collect the errors from each production.
 > data Error
 >   = Error_Rule_Invalid_Child Child Production
 >   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
->   | Error_Rule_Merge_Duplicate_I (Set Ensure_I)
->   | Error_Rule_Merge_Duplicate_S (Set Ensure_S)
+>   | Error_Rule_Merge_Duplicate_I CallStack (Set Ensure_I)
+>   | Error_Rule_Merge_Duplicate_S CallStack (Set Ensure_S)
 >   | Error_Rule_Delete_Missing_I Ensure_I
 >   | Error_Rule_Delete_Missing_S Ensure_S
 >   | Error_InhDesc_Duplicate [Attribute I] -- raised when checking InhDesc
