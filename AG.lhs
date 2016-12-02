@@ -60,7 +60,6 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
-- debug the error when running locminR and heightR in Repmin.lhs
 - Add locations to errors
 - Pretty printer for errors
 - Template haskell to generate grammar, bindings, gramDesc
@@ -115,7 +114,7 @@ can implement a very flexible namespace system.
 
 *** Monoids
 
-> {- ((#)
+> ((#)
 
 *** General trees
 
@@ -205,7 +204,7 @@ We keep the context and errors abstract, we can only `show' them.
 > , Check
 > , run , runTree
 
-> ) -}
+> )
 > where
 
 ** Module Imports
@@ -288,6 +287,11 @@ then it's not an applicative instance.
 
 > applyMap :: Ord k => Map k (a -> b) -> Map k a -> Map k b
 > applyMap = Map.intersectionWith ($)
+
+A constant map over a given domain.
+
+> constantMap :: Ord k => a -> Set k -> Map k a
+> constantMap x = Set.foldr (\k -> Map.insert k x) Map.empty
 
 Set operations
 
@@ -1805,11 +1809,15 @@ Abstract type for attributions.
 
 > type SemProd = Child :-> SemTree -> AttrMap T -> SemTree
 
+Note: we need to extend the domain of inh_children to cover
+all the children of the current production.
+
 > sem_prod :: PureRule -> SemProd
 > sem_prod rule forest terminals inh = syn
 >   where
 >     (syn, inh_children) = rule (inh, syn_children, terminals)
->     syn_children = forest `applyMap` inh_children
+>     syn_children = forest `applyMap` extended_inh
+>     extended_inh = Map.union inh_children (constantMap emptyAttrs (Map.keysSet forest))
 
 > unsafe_run :: PureAspect -> InputTree -> SemTree
 > unsafe_run = sem_tree . Map.map sem_prod
