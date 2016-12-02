@@ -856,7 +856,7 @@ Generate errors if the child is not valid in the current production.
 > assert_child c = do
 >   p <- current_production
 >   unless (c `elem` prod_children p)
->     $ throwError (Error_Rule_Invalid_Child c p)
+>     $ throwErrorA (Error_Rule_Invalid_Child c p)
 
 > cstr :: Typeable a =>
 >   Attr k a -> t -> Set (Constraint k t)
@@ -918,8 +918,8 @@ may fail if some constraints are not met, like using a child
 that is not a valid child of the current production.
 And lastly, we collect constraints.
 
-> newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the aspect monad
->   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError Error, MonadWriter Context)
+> newtype A a = A (ReaderT Production (ExceptT ErrorC (Writer Context)) a) -- the aspect monad
+>   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError ErrorC, MonadWriter Context)
 
 private
 
@@ -967,9 +967,9 @@ Merging rules whose domain overlap is an error.
 > mergeRule :: HasCallStack => Op Rule
 > mergeRule left_rule right_rule
 >   | not (Set.null duplicate_inh) =
->       AR $ throwError $ Error_Rule_Merge_Duplicate_I callStack duplicate_inh
+>       AR $ throwErrorA $ Error_Rule_Merge_Duplicate_I duplicate_inh
 >   | not (Set.null duplicate_syn) =
->       AR $ throwError $ Error_Rule_Merge_Duplicate_S callStack duplicate_syn
+>       AR $ throwErrorA $ Error_Rule_Merge_Duplicate_S duplicate_syn
 >   | otherwise = liftA2 mergeOutAttrs left_rule right_rule
 >   where
 >     left_ctx = rule_context left_rule
@@ -1020,7 +1020,7 @@ if this definition is not provided by `rule'.
 >   del_attr r = do
 >     (rout, ctx) <- listen $ fmap (fmap (del cstr)) r
 >     when (not . Set.member cstr . fst $ lens ctx) $
->       throwError $ err cstr
+>       throwErrorA $ err cstr
 >     return rout
 
 ** Aspect
@@ -1073,7 +1073,7 @@ Note: we collect the errors from each production.
 >    asp_err = do
 >      errors <- errors_ag
 >      if null errors then asp_ag
->      else throwError $ Errors errors
+>      else throwErrorC $ Errors errors
 >    asp_ar = traverse runAR asp -- A (Production :-> R OutAttrs)
 >    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
 >    err = error "[BUG] runAspect: unexpected use of production."
@@ -1086,11 +1086,18 @@ Note: we collect the errors from each production.
 
 * Error datatype
 
+> newtype ErrorC = ErrorC (Error, CallStack) deriving Show
+
+> throwErrorA :: HasCallStack => Error -> A a
+> throwErrorA e = throwError (ErrorC (e, popCallStack callStack))
+> throwErrorC :: HasCallStack => Error -> Check a
+> throwErrorC e = throwError (ErrorC (e, popCallStack callStack))
+
 > data Error
 >   = Error_Rule_Invalid_Child Child Production
 >   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
->   | Error_Rule_Merge_Duplicate_I CallStack (Set Ensure_I)
->   | Error_Rule_Merge_Duplicate_S CallStack (Set Ensure_S)
+>   | Error_Rule_Merge_Duplicate_I (Set Ensure_I)
+>   | Error_Rule_Merge_Duplicate_S (Set Ensure_S)
 >   | Error_Rule_Delete_Missing_I Ensure_I
 >   | Error_Rule_Delete_Missing_S Ensure_S
 >   | Error_InhDesc_Duplicate [Attribute I] -- raised when checking InhDesc
@@ -1114,7 +1121,7 @@ Note: we collect the errors from each production.
 >   | Error_Tree_Invalid_Terminals (AttrSet T)
 >   | Error_Tree_Missing_Terminals (AttrSet T)
 >   | Error_RunTree_Missing (Set Require_I)
->   | Errors [Error]
+>   | Errors [ErrorC]
 >   deriving Show
 
  - `Error_Rule_Invalid_Child c p' ::
@@ -1483,15 +1490,15 @@ them.
 >  where
 >  this
 >   | not (null duplicate_children) =
->       throwError $ Error_ProdDesc_Duplicate_Children duplicate_children prod
+>       throwErrorC $ Error_ProdDesc_Duplicate_Children duplicate_children prod
 >   | not (Set.null invalid_children) =
->       throwError $ Error_ProdDesc_Invalid_Children invalid_children prod
+>       throwErrorC $ Error_ProdDesc_Invalid_Children invalid_children prod
 >   | not (Set.null missing_children) =
->       throwError $ Error_ProdDesc_Missing_Children missing_children prod
+>       throwErrorC $ Error_ProdDesc_Missing_Children missing_children prod
 >   | not (Set.null invalid_terminals) =
->       throwError $ Error_ProdDesc_Invalid_Terminals invalid_terminals prod
+>       throwErrorC $ Error_ProdDesc_Invalid_Terminals invalid_terminals prod
 >   | not (Set.null missing_terminals) =
->       throwError $ Error_ProdDesc_Missing_Terminals missing_terminals prod
+>       throwErrorC $ Error_ProdDesc_Missing_Terminals missing_terminals prod
 >   | otherwise = do
 >       check_attr_unique Error_ProdDesc_Duplicate_Terminals ts
 >       return $ ProdDescRec prod children_types match
@@ -1520,7 +1527,7 @@ them.
 >   ([Attribute k] -> Error) -> AttrDesc k t -> Check ()
 > check_attr_unique err desc
 >   | null xs' = return ()
->   | otherwise = throwError $ err xs'
+>   | otherwise = throwErrorC $ err xs'
 >   where
 >     (proj, xs) = runWriter . runAttrDesc $ desc
 >     xs' = duplicates xs
@@ -1554,9 +1561,9 @@ them.
 >   this :: [ProdDescRec a] -> Check (NtDescRec a)
 >   this ps
 >    | not (null duplicate_prods) =
->        throwError $ Error_NtDesc_Duplicate_Productions duplicate_prods nonterm
+>        throwErrorC $ Error_NtDesc_Duplicate_Productions duplicate_prods nonterm
 >    | not (Set.null invalid_prods) =
->        throwError $ Error_NtDesc_Invalid_Productions invalid_prods nonterm
+>        throwErrorC $ Error_NtDesc_Invalid_Productions invalid_prods nonterm
 >    | otherwise = return $ NtDescRec nonterm productions children_types (match ps)
 >    where
 >      productions = Set.fromList prodlist
@@ -1602,7 +1609,7 @@ root of the tree will have type `a'.
 >   (_, gram_prods, gram_children_types, gram_match) <- runGramDesc gdesc
 >   let nt = ntDesc_nt n
 >   when (nt `Map.member` gram_match)
->     $ throwError $ Error_GramDesc_Duplicate nt
+>     $ throwErrorC $ Error_GramDesc_Duplicate nt
 >   let match = Map.insert nt (typeRep ndesc, nt_match n) gram_match
 >   let children_types = Map.union (ntDesc_children_types n) gram_children_types
 >   let grammar = Set.union (ntDesc_prods n) gram_prods
@@ -1620,7 +1627,7 @@ Private
 
 The Check monad
 
-> type Check a = Either Error a
+> type Check a = Either ErrorC a
 
 Unique attributes
 
@@ -1647,7 +1654,7 @@ ensured by the rules.
 >   SynDesc s -> Grammar -> NonTerminal -> Set Ensure_S -> Check ()
 > check_syn_ensured desc prods root ens
 >   | Set.null missing = return ()
->   | otherwise = throwError $ Error_SynDesc_Missing missing
+>   | otherwise = throwErrorC $ Error_SynDesc_Missing missing
 >   where
 >     missing = unionSets (missing_S prods ens) ss'
 >     ss' = Set.map cstr ss
@@ -1668,9 +1675,9 @@ with the typeRep associated with each `childDesc'.
 >   Child :-> TypeRep -> GramMap -> Check ()
 > check_children_types types gram
 >   | not (Set.null missing) =
->       throwError $ Error_GramDesc_Missing missing
+>       throwErrorC $ Error_GramDesc_Missing missing
 >   | not (Map.null wrong_types) =
->       throwError $ Error_GramDesc_Wrong_Types (Map.keysSet wrong_types)
+>       throwErrorC $ Error_GramDesc_Wrong_Types (Map.keysSet wrong_types)
 >   | otherwise = return ()
 >  where
 >    (!) = (Map.!)
@@ -1682,7 +1689,7 @@ with the typeRep associated with each `childDesc'.
 > check_missing ::
 >   Missing -> Check ()
 > check_missing missing
->   | not (nullMissing missing) = throwError $ Error_Missing missing
+>   | not (nullMissing missing) = throwErrorC $ Error_Missing missing
 >   | otherwise = return ()
 
 We check that the children have unique names for each production.
@@ -1695,7 +1702,7 @@ We check that the children have unique names for each production.
 >   Production -> Check ()
 > check_production prod
 >   | not (null dup) =
->       throwError $ Error_Production_Duplicate_Children_Names dup prod
+>       throwErrorC $ Error_Production_Duplicate_Children_Names dup prod
 >   | otherwise = return ()
 >   where
 >     dup = duplicates (fst <$> prod_orphans prod)
@@ -1733,13 +1740,13 @@ the tree is compatible with the grammar.
 > tree_gram :: InputTree -> Check Grammar
 > tree_gram (Node prod cs ts)
 >   | not (Set.null invalid_children) =
->       throwError $ Error_Tree_Invalid_Children invalid_children
+>       throwErrorC $ Error_Tree_Invalid_Children invalid_children
 >   | not (Set.null missing_children) =
->       throwError $ Error_Tree_Missing_Children missing_children
+>       throwErrorC $ Error_Tree_Missing_Children missing_children
 >   | not (Set.null invalid_terminals) =
->       throwError $ Error_Tree_Invalid_Terminals invalid_terminals
+>       throwErrorC $ Error_Tree_Invalid_Terminals invalid_terminals
 >   | not (Set.null missing_terminals) =
->       throwError $ Error_Tree_Missing_Terminals missing_terminals
+>       throwErrorC $ Error_Tree_Missing_Terminals missing_terminals
 >   | otherwise =
 >       Map.foldr (\t ag_g -> liftM2 Set.union ag_g (tree_gram t))
 >                 (return (Set.singleton prod)) cs
@@ -1764,7 +1771,7 @@ attributes are defined.
 >   AttrSet I  -> NonTerminal -> Set Require_I -> Check ()
 > check_attrs err attrs root req
 >   | Set.null missing = return ()
->   | otherwise = throwError $ err missing
+>   | otherwise = throwErrorC $ err missing
 >   where
 >     missing = Set.difference req' attrs'
 >     req' = Set.filter ((root ==) . constr_obj) req
