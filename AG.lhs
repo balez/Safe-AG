@@ -93,7 +93,6 @@ base name and a renaming function. The R monad would also
 have a reader for the renaming function. Using this system we
 can implement a very flexible namespace system.
 
-
 * Header
 ** GHC Extensions
 
@@ -146,13 +145,6 @@ can implement a very flexible namespace system.
 
 > , Attrs, single_attr, (|=>), empty_attrs, merge_attrs, lookup_attrs -- Monoid
 
-*** Constraints, Contexts, Errors
-
-We keep the context and errors abstract, we can only `show' them.
-
-> , Context, Missing -- Show
-> , Error -- Show
-
 *** Aspects
 **** Types
 
@@ -180,6 +172,13 @@ We keep the context and errors abstract, we can only `show' them.
 > , chain, chainN, chainP
 
 *** Running the AG
+**** Constraints, Contexts, Errors
+
+We keep the context and errors abstract, we can only `show' them.
+
+> , Context, Missing -- Show
+> , Error, prettyError -- Show
+
 **** Specification
 ***** Synthesized attributes
 
@@ -216,7 +215,7 @@ We keep the context and errors abstract, we can only `show' them.
 > import Control.Monad.Writer.Strict hiding (sequence)
 > import Control.Monad.Reader hiding (sequence)
 > import Data.Maybe (fromMaybe)
-> import Data.List (nub, (\\))
+> import Data.List (nub, (\\), intercalate)
 > import Data.Dynamic
 > import Data.Function (on)
 > import qualified Data.Set as Set
@@ -225,7 +224,7 @@ We keep the context and errors abstract, we can only `show' them.
 > import Data.Map (Map)
 > import Data.Traversable
 > import Data.Foldable (foldMap, all, traverse_)
-> import GHC.Stack -- callstacks
+> import GHC.Stack hiding (prettyCallStack) -- callstacks
 > import Unknown
 
 * General definitions
@@ -274,11 +273,9 @@ Type of binary operators
 
 > type Op a = a -> a -> a
 
-Not used.
-
-> infixr 1 #
-> (#) :: Monoid a => Op a
-> (#) = mappend
+ > infixr 1 #
+ > (#) :: Monoid a => Op a
+ > (#) = mappend
 
 Pointwise application for finite maps.
 The result is defined on the intersection of the arguments.
@@ -853,6 +850,7 @@ require_* and ensure_* functions given below.
 
 Generate errors if the child is not valid in the current production.
 
+> assert_child :: HasCallStack => Child -> A ()
 > assert_child c = do
 >   p <- current_production
 >   unless (c `elem` prod_children p)
@@ -863,8 +861,8 @@ Generate errors if the child is not valid in the current production.
 > cstr a x =
 >   Set.singleton (Constraint a x)
 
-> require_child ::
->   Typeable a => Child -> Attr S a -> A ()
+> require_child :: (HasCallStack, Typeable a) =>
+>   Child -> Attr S a -> A ()
 > require_child c a = do
 >   assert_child c
 >   tell $ emptyCtx { require_S = cstr a (child_nt c) }
@@ -918,8 +916,8 @@ may fail if some constraints are not met, like using a child
 that is not a valid child of the current production.
 And lastly, we collect constraints.
 
-> newtype A a = A (ReaderT Production (ExceptT ErrorC (Writer Context)) a) -- the aspect monad
->   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError ErrorC, MonadWriter Context)
+> newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the aspect monad
+>   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError Error, MonadWriter Context)
 
 private
 
@@ -1007,7 +1005,7 @@ if this definition is not provided by `rule'.
 >   (delete_attr a ps, ci)
 
 > delete_rule :: (Ord t) =>
->   (Constraint k t -> Error) ->
+>   (Constraint k t -> ErrorMsg) ->
 >   Lens Context (Set (Constraint k t)) ->
 >   (Constraint k t -> OutAttrs -> OutAttrs) ->
 >   Constraint k t -> Rule -> Rule
@@ -1031,8 +1029,9 @@ if this definition is not provided by `rule'.
 > inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
 > emptyAspect = Aspect $ Map.empty
 
-> mergeAspect :: Aspect -> Aspect -> Aspect
-> mergeAspect = inAspect2 $ Map.unionWith mergeRule
+> mergeAspect, (#) :: HasCallStack => Aspect -> Aspect -> Aspect
+> mergeAspect = withFrozenCallStack $ inAspect2 $ Map.unionWith mergeRule
+> (#) = withFrozenCallStack mergeAspect
 
 > instance Monoid Aspect where
 >   mempty = emptyAspect
@@ -1086,16 +1085,8 @@ Note: we collect the errors from each production.
 
 * Error datatype
 
-> newtype ErrorC = ErrorC (Error, CallStack) deriving Show
-
-> throwErrorA :: HasCallStack => Error -> A a
-> throwErrorA e = throwError (ErrorC (e, popCallStack callStack))
-> throwErrorC :: HasCallStack => Error -> Check a
-> throwErrorC e = throwError (ErrorC (e, popCallStack callStack))
-
-> data Error
+> data ErrorMsg
 >   = Error_Rule_Invalid_Child Child Production
->   | Error_Rule_Missing Missing  -- raised when checking rules with a grammar
 >   | Error_Rule_Merge_Duplicate_I (Set Ensure_I)
 >   | Error_Rule_Merge_Duplicate_S (Set Ensure_S)
 >   | Error_Rule_Delete_Missing_I Ensure_I
@@ -1121,13 +1112,65 @@ Note: we collect the errors from each production.
 >   | Error_Tree_Invalid_Terminals (AttrSet T)
 >   | Error_Tree_Missing_Terminals (AttrSet T)
 >   | Error_RunTree_Missing (Set Require_I)
->   | Errors [ErrorC]
+>   | Errors [Error]
 >   deriving Show
 
- - `Error_Rule_Invalid_Child c p' ::
-     When child `c' was used in the context of the production
-     `p` which doesn't list this child. This error coms from
-     a rule that projects attribute from a wrong child.
+> newtype Error = Error (ErrorMsg, CallStack) deriving Show
+
+> throwErrorA :: HasCallStack => ErrorMsg -> A a
+> throwErrorA e = throwError (Error (e, popCallStack callStack))
+
+> throwErrorC :: HasCallStack => ErrorMsg -> Check a
+> throwErrorC e = throwError (Error (e, popCallStack callStack))
+
+> prettyError :: Error -> String
+> prettyError (Error (e,c)) =
+>   prettyErrorMsg e ++ prettyCallStack c ++ "\n"
+
+> prettyErrorMsg (Errors es) = unlines (prettyError <$> es)
+> prettyErrorMsg e = "Error: " ++ case e of
+>   Error_Rule_Invalid_Child c p ->
+>     "child " ++ show c ++ " does not belong to production " ++ show p
+>   Error_Rule_Merge_Duplicate_I es ->
+>     "multiple attributions: "
+>     ++ intercalate ", " (show <$> Set.toList es)
+>   Error_Rule_Merge_Duplicate_S es ->
+>     "multiple attributions: "
+>     ++ intercalate ", " (show <$> Set.toList es)
+>   -- Error_Rule_Delete_Missing_I Ensure_I
+>   -- Error_Rule_Delete_Missing_S Ensure_S
+>   -- Error_InhDesc_Duplicate [Attribute I] -- raised when checking InhDesc
+>   -- Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
+>   -- Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
+>   -- Error_ProdDesc_Duplicate_Children [Child] Production
+>   -- Error_ProdDesc_Invalid_Children (Set Child) Production
+>   -- Error_ProdDesc_Missing_Children (Set Child) Production
+>   -- Error_ProdDesc_Duplicate_Terminals [Attribute T]
+>   -- Error_ProdDesc_Invalid_Terminals (AttrSet T) Production
+>   -- Error_ProdDesc_Missing_Terminals (AttrSet T) Production
+>   -- Error_NtDesc_Duplicate_Productions [Production] NonTerminal
+>   -- Error_NtDesc_Invalid_Productions (Set Production) NonTerminal
+>   -- Error_GramDesc_Duplicate NonTerminal
+>   -- Error_GramDesc_Missing (Set NonTerminal)
+>   -- Error_GramDesc_Wrong_Types (Set Child)
+>   -- Error_Production_Duplicate_Children_Names [Name] Production
+>   -- Error_Missing Missing
+>   -- Error_Tree_Invalid_Children (Set Child)
+>   -- Error_Tree_Missing_Children (Set Child)
+>   -- Error_Tree_Invalid_Terminals (AttrSet T)
+>   -- Error_Tree_Missing_Terminals (AttrSet T)
+>   -- Error_RunTree_Missing (Set Require_I)
+>   _ -> show e
+
+> prettyCallStack :: CallStack -> String
+> prettyCallStack = intercalate "\n" . prettyCallStackLines
+
+> prettyCallStackLines :: CallStack -> [String]
+> prettyCallStackLines cs = case getCallStack cs of
+>   []  -> []
+>   stk -> "":map (("  " ++) . prettyCallSite) stk
+>   where
+>     prettyCallSite (f, loc) = f ++ " at " ++ prettySrcLoc loc
 
 * Rule and Aspect primitives
 Rules are defined in an applicative `AR', that comes with
@@ -1141,8 +1184,9 @@ Maybe monad at runtime.
 
 Children attribute
 
-> (?), chiM :: Typeable a => Child -> Attr S a -> AR (Maybe a)
-> (?) c a = AR $ return $ do
+> (?), chiM ::  (HasCallStack, Typeable a) =>
+>   Child -> Attr S a -> AR (Maybe a)
+> (?) c a = withFrozenCallStack $ AR $ return $ do
 >   cs <- asks childrenAttrs
 >   return $ lookupAttr a =<< Map.lookup c cs
 
@@ -1150,22 +1194,24 @@ Children attribute
 
 Parent attribute
 
-> parM :: Typeable a => Attr I a -> AR (Maybe a)
-> parM a = AR $ return $ do
+> parM :: (HasCallStack, Typeable a) =>
+>   Attr I a -> AR (Maybe a)
+> parM a = withFrozenCallStack $ AR $ return $ do
 >  lookupAttr a <$> asks parentAttrs
 >
 
 Terminal attribute
 
-> terM :: Typeable a => Attr T a -> AR (Maybe a)
-> terM a = AR $ return $ do
+> terM :: (HasCallStack, Typeable a) =>
+>   Attr T a -> AR (Maybe a)
+> terM a = withFrozenCallStack $ AR $ return $ do
 >   lookupAttr a <$> asks terminalAttrs
 
 The strict versions are all instances of the following
 function, which adds a constraint before safely forcing the
 evaluation of the attribute.
 
-> strictProj :: Typeable a =>
+> strictProj :: (HasCallStack, Typeable a) =>
 >   (Attr k a -> AR (Maybe a)) ->   -- the maybe operation
 >   (Attr k a -> A ()) ->           -- the constraint
 >   Attr k a -> AR a
@@ -1177,15 +1223,21 @@ evaluation of the attribute.
 >     err = error $ "[BUG] strictProj: undefined attribute " ++ show a
 
 > infix 9 !
-> (!), chi :: Typeable a => Child -> Attr S a -> AR a
-> (!) c = strictProj (c ?) (require_child c)
+> (!), chi :: (HasCallStack, Typeable a) =>
+>   Child -> Attr S a -> AR a
+> (!) c = withFrozenCallStack $
+>   strictProj (c ?) (require_child c)
 > chi = (!)
 
-> par :: Typeable a => Attr I a -> AR a
-> par = strictProj parM require_parent
+> par :: (HasCallStack, Typeable a) =>
+>   Attr I a -> AR a
+> par = withFrozenCallStack .
+>   strictProj parM require_parent
 
-> ter :: Typeable a => Attr T a -> AR a
-> ter = strictProj terM require_terminal
+> ter :: (HasCallStack, Typeable a) =>
+>   Attr T a -> AR a
+> ter = withFrozenCallStack .
+>   strictProj terM require_terminal
 
 (private) Common boiler plate to build a rule (shared by inh and syn)
 
@@ -1524,7 +1576,7 @@ them.
 `prodDesc'.
 
 > check_attr_unique ::
->   ([Attribute k] -> Error) -> AttrDesc k t -> Check ()
+>   ([Attribute k] -> ErrorMsg) -> AttrDesc k t -> Check ()
 > check_attr_unique err desc
 >   | null xs' = return ()
 >   | otherwise = throwErrorC $ err xs'
@@ -1627,7 +1679,7 @@ Private
 
 The Check monad
 
-> type Check a = Either ErrorC a
+> type Check a = Either Error a
 
 Unique attributes
 
@@ -1767,7 +1819,7 @@ inherited attributes. We check that all the required
 attributes are defined.
 
 > check_attrs ::
->   (Set Require_I -> Error) ->
+>   (Set Require_I -> ErrorMsg) ->
 >   AttrSet I  -> NonTerminal -> Set Require_I -> Check ()
 > check_attrs err attrs root req
 >   | Set.null missing = return ()

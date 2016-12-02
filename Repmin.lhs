@@ -17,6 +17,7 @@
 > import qualified Data.Map as Map
 > import Control.Applicative
 > import AG
+> import GHC.Stack
 
 * Type proxies (used in attribute definitions)
 
@@ -35,7 +36,7 @@
 * Context free grammar
 
 ** Using the primitives for grammar definition
-*** Non-terminals
+ *** Non-terminals
 
  > btree = non_terminal "BTree"
  > root = non_terminal "Root"
@@ -49,9 +50,10 @@
  *** Children
 
  > startTree = child start "startTree" btree
- > leftTree = child fork "leftTree" btree
  > rightTree = child fork "rightTree" btree
-
+ > leftTree = child fork "leftTree" btree
+ > a = child fork "A" btree :: Child
+ > b = child fork "B" btree :: Child
 
 ** Using the DSL
 
@@ -147,11 +149,15 @@ must be given last.
 *** Running
 
 > repminAG = (\f r -> f r ()) <$> run rootDesc repminI repminS repminR
-> repmin x = case runAG repminAG of
+> repmin x = case repminAG of
 >   Left err -> print err
 >   Right f -> print $ f x
 
 > repminTree = runTreeAG repminR ntree
+
+> runlocmin x = case run rootDesc mempty (project locmin) locminR of
+>   Left err -> print err
+>   Right f -> print $ f x ()
 
 ** List of the leaves
 
@@ -192,15 +198,29 @@ Trying the error system
 
 > flattenAG = (\f r -> f r ()) <$> run rootDesc flattenI flattenS flattenR
 
-> flatten x = case runAG flattenAG of
+> flatten x = case flattenAG of
 >   Left err -> print err
 >   Right f -> print $ f x
 
 > flattenTree = runTreeAG flattenR flat
 
+** Height
+
+> height = attr "height" S pInt
+> heightR = syns height
+>   [ start |- startTree!height
+>   , leaf |- pure 1]
+>   # collectP height (\hs -> 1 + maximum hs) fork
+
+> runheight x = case run rootDesc mempty (project height) heightR of
+>   Left err -> print err
+>   Right f -> print $ f x ()
+
 * Main
 
 > main = do
+>   runlocmin example
+>   runheight example
 >   repmin example
 >   flatten example
 
@@ -221,11 +241,21 @@ Trying the error system
 
 * Testing the general trees
 
-> runTreeAG ag attr x = case runAG $ runTree ag root x mempty of
+> runTreeAG ag attr x = case runTree ag root x mempty of
 >   Left err -> print err
 >   Right s -> print $ s ! attr
 >  where m ! x = fromJust $ lookup_attrs x m
 >        fromJust (Just x) = x
+
+* Testing the error messages
+
+** duplicated rule
+
+> ntree2R = ntreeR # syn ntree leaf (pure (Leaf 0))
+
+ * invalid child
+
+> locmin2 = syn locmin start (leftTree!locmin)
 
 * Local variables for emacs
 Local Variables:
