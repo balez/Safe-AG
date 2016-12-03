@@ -3,8 +3,14 @@ import AG
 import Data.Proxy
 import Control.Applicative hiding (empty)
 import Data.Dynamic
+import GHC.Stack
 
+liftA4 f a b c d = liftA3 f a b c <*> d
 ifte p t e = if p then t else e
+
+ifteA :: Applicative f => f Bool -> f a -> f a -> f a
+ifteA = liftA3 ifte
+spaces n = str $ replicate n ' '
 
 pString = Proxy :: Proxy String
 pInt = Proxy :: Proxy Int
@@ -13,6 +19,8 @@ pList :: Proxy a -> Proxy [a]
 pList _ = Proxy
 pStrf = Proxy :: Proxy Strf
 
+-- strings
+
 type Strf = String -> String
 str :: String -> Strf
 str = (++)
@@ -20,6 +28,8 @@ nil :: Strf
 nil = id
 append :: Strf -> Strf -> Strf
 append = (.)
+from_str :: Strf -> String
+from_str = ($ "")
 
 -- terminal attributes
 
@@ -46,6 +56,36 @@ margin = attr "margin" T pInt
         (&) :: Typeable a => Attr T a -> Terminals -> Terminals
         (&) = consT
 
+-- combinators
+e   = node empty mempty mempty
+t s = node text  mempty (string |=> s)
+i m d = node indent (indented |-> d) (margin |=> m)
+l >|< r = node beside (left |-> l \/ right |-> r) mempty
+u >-< l = node above (upper |-> u \/ lower |-> l) mempty
+a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
+a >||< b = a >|< t " " >|< b
+
+-- example
+example1 = (t "when a writer" >-< t "needs some inspiration ")
+  >|< (t "there is nothing better" >-< (t "|" >|< i 5 (t "than") >-< (t "|" >|< i 10 (t "drinking"))))
+
+
+pp_ites condD thenD elseD
+  =   ifc >||< thent >||< elsee  >||< fi
+  >^< ifc >||<  t "then"
+      >-< i 2 thenD
+      >-< t "else"
+      >-< i 2 elseD
+      >-< fi
+  >^< ifc >-< thent >-< elsee  >-< fi
+  >^< ifc >||< (thent >-< elsee) >-< fi
+  where ifc   = t "if"   >||< condD
+        thent = t "then" >||< thenD
+        elsee = t "else" >||< elseD
+        fi    = t "fi"
+
+example2 = pp_ites (t "x < y") (t "print foobar") (t "print y")
+
 -- attributes
 
 height = attr "height" S pInt
@@ -54,16 +94,18 @@ total_width = attr "total_width" S pInt
 body = attr "body" S (pList pStrf)
 last_line = attr "last_line" S pStrf
 
+
+is_empty :: Child -> AR Bool
+is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
+  where zero 0 0 0 = True
+        zero _ _ _ = False
+
 emptyA = defS empty
   [ body        |= pure []
   , last_line   |= pure nil
   , height      |= pure 0
   , last_width  |= pure 0
   , total_width |= pure 0]
-
-is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
-  where zero 0 0 0 = True
-        zero _ _ _ = False
 
 textA = defS text
   [ body |= pure []
@@ -74,16 +116,53 @@ textA = defS text
   where
     len = length <$> ter string
 
-indentA = defS text
-  [ body        --> (\tabs body -> append tabs `map` body) <$> tabs <*> (indented!body)
+indentA = defS indent
+  [ body        --> (\tabs body -> append tabs `map` body) <$> tabs <*> indented!body
   , last_line   --> append <$> tabs <*> indented!last_line
   , height      |= indented!height
   , last_width  --> (+) <$> ter margin <*> indented!last_width
   , total_width --> (+) <$> ter margin <*> indented!total_width
   ] where
     infix 0 -->
-    x --> y = x |= liftA3 ifte (is_empty indented) (indented!x) y
+    x --> y = x |= ifteA (is_empty indented) (indented!x) y
     tabs = spaces <$> ter margin
-    spaces n = str $ replicate n ' '
 
-besideA =
+besideA = defS beside
+  [ body -->  if_empty_right_body (left!body) beside_body
+  , last_line --> append <$> if_empty_right_body (left!last_line) tabs
+                         <*> right!last_line
+  , height --> (\x y -> x + y - 1) <$> left!height <*> right!height
+  , last_width --> (+) <$> left!last_width <*> right!last_width
+  , total_width --> max <$> left!total_width <*> ((+) <$> left!last_width <*> right!total_width)
+  ] where
+    infix 0 -->
+    x --> y = x |= ifteA (is_empty left) (right ! x)
+                     (ifteA (is_empty right) (left ! x) y)
+    if_empty_right_body = ifteA (null <$> right!body)
+
+    tabs = spaces <$> left!last_width
+    -- beside_body = (++) <$> left!body
+    --                    <*> ( (:) <$> (append <$> left!last_line <*> (head <$> right!body))
+    --                              <*> (map <$> (append <$> tabs) <*> (tail <$> right!body)))
+    beside_body = liftA4 f tabs (left!body) (left!last_line) (right!body)
+      where f sp lb ll (rb : rbs) =
+              lb ++ (append ll rb) : (append sp `map` rbs)
+
+aboveA = defS above
+  [ body --> (++) <$> upper!body <*> ((:) <$> upper!last_line <*> lower!body)
+  , last_line --> lower!last_line
+  , height --> (+) <$> upper!height <*> lower!height
+  , last_width --> lower!last_width
+  , total_width --> max <$> upper!total_width <*> lower!total_width
+  ] where
+    infix 0 -->
+    x --> y = x |= ifteA (is_empty upper) (lower ! x)
+                     (ifteA (is_empty lower) (upper ! x) y)
+
+allA = emptyA # textA # indentA # besideA # aboveA
+
+test x = case runTree allA pp x mempty of
+  Left err -> putStr $ prettyError err
+  Right s -> do {putStr $ unlines (map from_str (s ! body)); putStrLn (from_str (s ! last_line))}
+  where m ! x = fromJust $ lookup_attrs x m
+        fromJust (Just x) = x
