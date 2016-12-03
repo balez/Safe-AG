@@ -126,36 +126,36 @@ The same grammar is written as follows:
 Remember the priority of merging is left to right, so copy
 must be given last.
 
-> repminR = gminR # locminR # ntreeR
+> repminA = gminA # locminA # ntreeA
 
-> gminR = inh gmin startTree (startTree!locmin)
+> gminA = inh gmin startTree (startTree!locmin)
 >         # copyP gmin fork
 
-> locminR = syns locmin
+> locminA = syns locmin
 >           [ leaf |- ter val
 >           , start |- startTree!locmin]
 >   # collectAll locmin minimum fork
 
-> ntreeR = syns ntree
+> ntreeA = syns ntree
 >   [ leaf |- liftA Leaf (par gmin)
 >   , fork |- liftA2 Fork (leftTree!ntree) (rightTree!ntree)
 >   , start |- startTree!ntree
 >   ]
 
  Try
- > missing rootG (context ntreeR)
- > missing rootG (context repminR)
+ > missing rootG (context ntreeA)
+ > missing rootG (context repminA)
 
 *** Running
 
-> repminAG = (\f r -> f r ()) <$> run rootDesc repminI repminS repminR
+> repminAG = (\f r -> f r ()) <$> run rootDesc repminI repminS repminA
 > repmin x = case repminAG of
 >   Left err -> print err
 >   Right f -> print $ f x
 
-> repminTree = runTreeAG repminR ntree
+> repminTree = runTreeAG repminA ntree
 
-> runlocmin x = case run rootDesc mempty (project locmin) locminR of
+> runlocmin x = case run rootDesc mempty (project locmin) locminA of
 >   Left err -> print err
 >   Right f -> print $ f x ()
 
@@ -164,15 +164,15 @@ must be given last.
 > tailf = attr "tail" I (pList pInt)
 > flat = attr "flat" S (pList pInt)
 
-> flattenR = flatR # tailR
+> flattenA = flatA # tailA
 
-> flatR = syns flat
+> flatA = syns flat
 >     [ start |- startTree!flat
 >     , leaf  |- (:) <$> ter val <*> par tailf
 >     , fork  |- leftTree!flat
 >     ]
 
-> tailR =
+> tailA =
 >   inhs tailf
 >     [ rightTree |- par tailf
 >     , leftTree  |- rightTree!flat
@@ -181,8 +181,8 @@ must be given last.
 
 *** Testing
     Try
- > missing rootG (context tailR)
- > missing rootG (context flattenR)
+ > missing rootG (context tailA)
+ > missing rootG (context flattenA)
 
 Trying the error system
 
@@ -196,23 +196,23 @@ Trying the error system
 > flattenI = emptyAttrDesc
 > flattenS = project flat
 
-> flattenAG = (\f r -> f r ()) <$> run rootDesc flattenI flattenS flattenR
+> flattenAG = (\f r -> f r ()) <$> run rootDesc flattenI flattenS flattenA
 
 > flatten x = case flattenAG of
 >   Left err -> print err
 >   Right f -> print $ f x
 
-> flattenTree = runTreeAG flattenR flat
+> flattenTree = runTreeAG flattenA flat
 
 ** Height
 
 > height = attr "height" S pInt
-> heightR = syns height
+> heightA = syns height
 >   [ start |- startTree!height
 >   , leaf |- pure 1]
 >   # collectP height (\hs -> 1 + maximum hs) fork
 
-> runheight x = case run rootDesc mempty (project height) heightR of
+> runheight x = case run rootDesc mempty (project height) heightA of
 >   Left err -> print err
 >   Right f -> print $ f x ()
 
@@ -249,9 +249,11 @@ Trying the error system
 
 * Testing the error messages
 
+> test_aspect asp = case check_aspect asp of {Left e -> putStr (prettyError e) ;_ -> return ()}
+
 ** duplicated rule
 
-> ntree2R = ntreeR # syn ntree leaf (pure (Leaf 0))
+> ntree2A = ntreeA # syn ntree leaf (pure (Leaf 0)) # repminA
 
  * invalid child
 
