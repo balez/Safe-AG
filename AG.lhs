@@ -60,8 +60,7 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
-- Add locations to errors
-- Pretty printer for errors
+- dependent type trick for nicer applicative notation
 - Template haskell to generate grammar, bindings, gramDesc
 - Reorganise source code for a better presentation (easier to read an understand).
 - Longer, real-world examples
@@ -161,9 +160,11 @@ can implement a very flexible namespace system.
 
 **** Aspect constructors
 
-> , inh, syn, inhs, syns, (|-)
+> , inh, syn
 > , emptyAspect, mergeAspect, concatAspects
 > , delete_I, delete_S
+> , inhs, syns, (|-)
+> , defS, defI, (|=)
 
 **** Generic rules
 
@@ -258,16 +259,11 @@ We keep the context and errors abstract, we can only `show' them.
 > infixr 1 :->
 > type (:->) = Map
 
-> infixr 2 |->, |-
+> infixr 2 |->
 > (|->) = Map.singleton
 > infixr 1 \/
 > (\/) :: Ord k => Op (k :-> a)
 > (\/) = Map.union
-
-
-Nicer pairs for association lists [(a,b)]
-
-> x |- y = (x,y)
 
 Type of binary operators
 
@@ -1097,7 +1093,7 @@ Note: we collect the errors from each production.
 >   | Error_ProdDesc_Duplicate_Children [Child] Production
 >   | Error_ProdDesc_Invalid_Children (Set Child) Production
 >   | Error_ProdDesc_Missing_Children (Set Child) Production
->   | Error_ProdDesc_Duplicate_Terminals [Attribute T]
+>   | Error_ProdDesc_Duplicate_Terminals [Attribute T] Production
 >   | Error_ProdDesc_Invalid_Terminals (AttrSet T) Production
 >   | Error_ProdDesc_Missing_Terminals (AttrSet T) Production
 >   | Error_NtDesc_Duplicate_Productions [Production] NonTerminal
@@ -1107,13 +1103,15 @@ Note: we collect the errors from each production.
 >   | Error_GramDesc_Wrong_Types (Set Child)
 >   | Error_Production_Duplicate_Children_Names [Name] Production
 >   | Error_Missing Missing
->   | Error_Tree_Invalid_Children (Set Child)
->   | Error_Tree_Missing_Children (Set Child)
->   | Error_Tree_Invalid_Terminals (AttrSet T)
->   | Error_Tree_Missing_Terminals (AttrSet T)
+>   | Error_Tree_Invalid_Children (Set Child) Production
+>   | Error_Tree_Missing_Children (Set Child) Production
+>   | Error_Tree_Invalid_Terminals (AttrSet T) Production
+>   | Error_Tree_Missing_Terminals (AttrSet T) Production
 >   | Error_RunTree_Missing (Set Require_I)
 >   | Errors [Error]
 >   deriving Show
+
+** Callstack
 
 > newtype Error = Error (ErrorMsg, CallStack) deriving Show
 
@@ -1123,44 +1121,90 @@ Note: we collect the errors from each production.
 > throwErrorC :: HasCallStack => ErrorMsg -> Check a
 > throwErrorC e = throwError (Error (e, popCallStack callStack))
 
+** pretty printing
+
 > prettyError :: Error -> String
 > prettyError (Error (e,c)) =
->   prettyErrorMsg e ++ prettyCallStack c ++ "\n"
+>   "AG:Error: " ++ prettyErrorMsg e ++ prettyCallStack c ++ "\n"
 
-> prettyErrorMsg (Errors es) = unlines (prettyError <$> es)
-> prettyErrorMsg e = "Error: " ++ case e of
+> prettyErrorMsg (Errors es) = --unlines $ map prettyError es
+>   unlines $ show_errs <$> Map.toList (group_errors es)
+>   where show_errs (c,es) = c ++ "\n" ++ unlines (prettyErrorMsg <$> es)
+
+> prettyErrorMsg e = case e of
 >   Error_Rule_Invalid_Child c p ->
 >     "child " ++ show c ++ " does not belong to production " ++ show p
 >   Error_Rule_Merge_Duplicate_I es ->
->     "multiple attributions: "
->     ++ intercalate ", " (show <$> Set.toList es)
+>     "merging conflict: "
+>     ++ show_set es
 >   Error_Rule_Merge_Duplicate_S es ->
->     "multiple attributions: "
->     ++ intercalate ", " (show <$> Set.toList es)
->   -- Error_Rule_Delete_Missing_I Ensure_I
->   -- Error_Rule_Delete_Missing_S Ensure_S
->   -- Error_InhDesc_Duplicate [Attribute I] -- raised when checking InhDesc
->   -- Error_InhDesc_Missing (Set Require_I) -- raised when checking InhDesc and rules
->   -- Error_SynDesc_Missing (Set Ensure_S) -- raised when checking SynDesc, Grammar and rules
->   -- Error_ProdDesc_Duplicate_Children [Child] Production
->   -- Error_ProdDesc_Invalid_Children (Set Child) Production
->   -- Error_ProdDesc_Missing_Children (Set Child) Production
->   -- Error_ProdDesc_Duplicate_Terminals [Attribute T]
->   -- Error_ProdDesc_Invalid_Terminals (AttrSet T) Production
->   -- Error_ProdDesc_Missing_Terminals (AttrSet T) Production
->   -- Error_NtDesc_Duplicate_Productions [Production] NonTerminal
->   -- Error_NtDesc_Invalid_Productions (Set Production) NonTerminal
->   -- Error_GramDesc_Duplicate NonTerminal
->   -- Error_GramDesc_Missing (Set NonTerminal)
->   -- Error_GramDesc_Wrong_Types (Set Child)
->   -- Error_Production_Duplicate_Children_Names [Name] Production
->   -- Error_Missing Missing
->   -- Error_Tree_Invalid_Children (Set Child)
->   -- Error_Tree_Missing_Children (Set Child)
->   -- Error_Tree_Invalid_Terminals (AttrSet T)
->   -- Error_Tree_Missing_Terminals (AttrSet T)
->   -- Error_RunTree_Missing (Set Require_I)
+>     "merging conflict: "
+>     ++ show_set es
+>   Error_Rule_Delete_Missing_I c ->
+>     "missing attribution while trying to delete:" ++ show c
+>   Error_Rule_Delete_Missing_S c ->
+>     "missing attribution while trying to delete:" ++ show c
+>   Error_InhDesc_Duplicate cs ->
+>     "InhDesc, some inherited attributes for the root were specified more that once: "
+>     ++ show_list cs
+>   Error_InhDesc_Missing cs ->
+>     "InhDesc: some inherited attributes were not specified for the root: "
+>     ++ show_set cs
+>   Error_SynDesc_Missing cs ->
+>     "SynDesc: some attributes do not have a corresponding definition: " ++ show_set cs
+>   Error_ProdDesc_Duplicate_Children cs p -> --[Child] Production
+>     "ProdDesc: some children have been specified more that once for production " ++ show p ++ ": " ++ show_list cs
+>   Error_ProdDesc_Invalid_Children cs p -> --(Set Child) Production
+>     "ProdDesc: some children are not valid in production " ++ show p ++ ": " ++ show_set cs
+>   Error_ProdDesc_Missing_Children cs p -> --(Set Child) Production
+>     "ProdDesc: some children were not specified for production " ++ show p ++ ": " ++ show_set cs
+>   Error_ProdDesc_Duplicate_Terminals ts p ->
+>     "ProdDesc: some terminals were specified more than once for production " ++ show p ++ ": " ++ show_list ts
+>   Error_ProdDesc_Invalid_Terminals ts p -> -- (AttrSet T) Production
+>     "ProdDesc: some terminals do not belong in production " ++ show p ++ ": " ++ show_set ts
+>   Error_ProdDesc_Missing_Terminals ts p -> --(AttrSet T) Production
+>     "ProdDesc: some terminals were not specified for production " ++ show p ++ ": " ++ show_set ts
+>   Error_NtDesc_Duplicate_Productions ps n -> -- [Production] NonTerminal
+>     "NtDesc: some productions were specified more than once for non-terminal " ++ show n ++ ": " ++ show_list ps
+>   Error_NtDesc_Invalid_Productions ps n -> --(Set Production) NonTerminal
+>     "NtDesc: some productions do not belong in non-terminal " ++ show n ++ ": " ++ show_set ps
+>   Error_GramDesc_Duplicate n -> --NonTerminal
+>     "GramDesc: non-terminal " ++ show n ++ " was specified more than once."
+>   Error_GramDesc_Missing ns -> --(Set NonTerminal)
+>     "GramDesc: some non-terminal were not specified " ++ show ns
+>   Error_GramDesc_Wrong_Types cs -> --(Set Child)
+>     "GramDesc: the concrete type of some child(ren) does not correspond to the concrete type of their non-terminal: "
+>     ++ show_set cs
+>   Error_Production_Duplicate_Children_Names ns p -> --[Name] Production
+>     "ill-formed production: " ++ show p ++ ", the list of children contains more that once the same names: "
+>     ++ show_list ns
+>   Error_Missing ms -> -- Missing
+>     "incomplete attribute definitions, missing: " ++ show ms
+>   Error_Tree_Invalid_Children cs p -> --(Set Child) Production
+>     "runTree: some children are not valid in production: " ++ show p
+>     ++ ": " ++ show_set cs
+>   Error_Tree_Missing_Children cs p -> --(Set Child) Production
+>     "runTree: some children are missing in production: " ++ show p
+>     ++ ": " ++ show_set cs
+>   Error_Tree_Invalid_Terminals ts p -> -- (AttrSet T) Production
+>     "runTree: some terminals are not valid in production: " ++ show p
+>     ++ ": " ++ show_set ts
+>   Error_Tree_Missing_Terminals ts p -> --(AttrSet T) Production
+>     "runTree: some terminals are missing in production: " ++ show p
+>     ++ ": " ++ show_set ts
+>   Error_RunTree_Missing cs -> --(Set Require_I)
+>     "runTree: some inherited attributes were not specified for the root: "
+>     ++ show_set cs
 >   _ -> show e
+
+*** Auxiliary definitions
+
+> show_list :: Show a => [a] -> String
+> show_list s = intercalate ", " (show <$> s)
+
+> show_set :: Show a => Set a -> String
+> show_set = show_list . Set.toList
+
 
 > prettyCallStack :: CallStack -> String
 > prettyCallStack = intercalate "\n" . prettyCallStackLines
@@ -1168,11 +1212,19 @@ Note: we collect the errors from each production.
 > prettyCallStackLines :: CallStack -> [String]
 > prettyCallStackLines cs = case getCallStack cs of
 >   []  -> []
->   stk -> "":map (("  " ++) . prettyCallSite) stk
+>   stk -> map (("  " ++) . prettyCallSite) stk
 >   where
 >     prettyCallSite (f, loc) = f ++ " at " ++ prettySrcLoc loc
 
-* Rule and Aspect primitives
+Builds a map from callstacks to error messages Note: i build
+the map using the string representation, that's not ideal:
+I should define an Ord instance for CallStacks.
+
+> group_errors = foldr cons Map.empty
+>  where cons (Error (e, c)) = Map.insertWith mappend (prettyCallStack c) [e]
+
+* Rules and Aspect primitives
+** Attribute projections
 Rules are defined in an applicative `AR', that comes with
 primitives to project attributes from either the parent, a
 child of the production or the terminal child.  Those
@@ -1254,18 +1306,14 @@ evaluation of the attribute.
 >   where
 >     fam' x = fam $ singleAttr attr x
 
+** Aspect constructors
+
 Inherited attributes are defined for a specific child of a
 production.  The production is determined by the Child.
-
-NOTE: since the child_prod is ProdName instead of a Production,
-we need to add a Production as an argument.
 
 > inh :: Typeable a => Attr I a -> Child -> AR a -> Aspect
 > inh a c = build_aspect a (child_prod c) (ensure_child c a)
 >   $ \attrs -> (emptyAttrs, c |-> attrs)
-
-> inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Aspect
-> inhs a = foldl (\rs (c,r) -> rs # inh a c r) emptyAspect
 
 Synthesized attributes are defined for the parent of a production.
 
@@ -1273,8 +1321,32 @@ Synthesized attributes are defined for the parent of a production.
 > syn a p = build_aspect a p (ensure_parent a)
 >   $ \attrs -> (attrs, emptyChildrenAttrs)
 
+** Derived combinators
+*** One attribute, multiple definitions
+Nicer pairs for association lists [(a,b)]
+
+> infixr 2 |-
+> x |- y = (x,y)
+
+> inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Aspect
+> inhs a = foldl (\rs (c,r) -> rs # inh a c r) emptyAspect
+
 > syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Aspect
 > syns a = foldl (\rs (p,r) -> rs # syn a p r) emptyAspect
+
+*** One production, multiple attributes
+
+> infixr 2 |=
+> x |= y = AttrDef x y
+
+> data AttrDef k where
+>   AttrDef :: Typeable a => Attr k a -> AR a -> AttrDef k
+
+> defS :: Production -> [AttrDef S] -> Aspect
+> defS p = foldl (\rs (AttrDef a r) -> rs # syn a p r) emptyAspect
+
+> defI :: Child -> [AttrDef I] -> Aspect
+> defI c = foldl (\rs (AttrDef a r) -> rs # inh a c r) emptyAspect
 
 * Generic rules
 
@@ -1552,7 +1624,7 @@ them.
 >   | not (Set.null missing_terminals) =
 >       throwErrorC $ Error_ProdDesc_Missing_Terminals missing_terminals prod
 >   | otherwise = do
->       check_attr_unique Error_ProdDesc_Duplicate_Terminals ts
+>       check_attr_unique (\ts -> Error_ProdDesc_Duplicate_Terminals ts prod) ts
 >       return $ ProdDescRec prod children_types match
 >   where
 >     match = liftA2 (liftA2 (,)) child_proj (Just . term_proj)
@@ -1792,13 +1864,13 @@ the tree is compatible with the grammar.
 > tree_gram :: InputTree -> Check Grammar
 > tree_gram (Node prod cs ts)
 >   | not (Set.null invalid_children) =
->       throwErrorC $ Error_Tree_Invalid_Children invalid_children
+>       throwErrorC $ Error_Tree_Invalid_Children invalid_children prod
 >   | not (Set.null missing_children) =
->       throwErrorC $ Error_Tree_Missing_Children missing_children
+>       throwErrorC $ Error_Tree_Missing_Children missing_children prod
 >   | not (Set.null invalid_terminals) =
->       throwErrorC $ Error_Tree_Invalid_Terminals invalid_terminals
+>       throwErrorC $ Error_Tree_Invalid_Terminals invalid_terminals prod
 >   | not (Set.null missing_terminals) =
->       throwErrorC $ Error_Tree_Missing_Terminals missing_terminals
+>       throwErrorC $ Error_Tree_Missing_Terminals missing_terminals prod
 >   | otherwise =
 >       Map.foldr (\t ag_g -> liftM2 Set.union ag_g (tree_gram t))
 >                 (return (Set.singleton prod)) cs
