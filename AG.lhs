@@ -60,13 +60,26 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
-- dependent type trick for nicer applicative notation
+- Add callstack to the reader monad for aspects (cf discussion [[callstacks]])
 - Template haskell to generate grammar, bindings, gramDesc
 - Reorganise source code for a better presentation (easier to read an understand).
 - Longer, real-world examples
 - Performance comparison with UUAG
 - Detecting dependencies, multi-pass execution.
 ** Discussion
+*** <<callstacks>>
+So far, when an error is detected because of a
+projection, the callstack will only show the immediate
+expression that called the projector, but that expression
+might be far from the site where an aspect is actually
+defined (with inh or syn), and may also be shared.
+An example in PrettyPrinting.hs is the function
+ #+BEGIN_SRC haskell
+is_empty :: Child -> AR Bool
+is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
+ #+END_SRC
+
+
 
 *** More caution with invalid Children
 Defining children of a production that are not in the list of orphans.
@@ -147,7 +160,7 @@ can implement a very flexible namespace system.
 *** Aspects
 **** Types
 
-> , AR -- Applicative, Functor
+> , AR -- Applicative, Functor (stands for Attribution Rule)
 > , Aspect -- Monoid
 
 **** Accessors
@@ -926,8 +939,10 @@ private
 
 ** AR applicative
 
+AR stands for Attribution Rule
+
 > newtype AR a = AR {runAR :: A (R a)}
->
+
 > instance Applicative AR where
 >   pure x = AR (pure (pure x))
 >   AR f <*> AR x = AR ((<*>) <$> f <*> x)
@@ -1076,8 +1091,10 @@ Note: we collect the errors from each production.
 > context :: Aspect -> Context
 > context = snd . runAspect
 
-> check_aspect :: Aspect -> Check ()
-> check_aspect a = () <$ fst (runAspect a)
+> check_aspect :: Aspect -> IO ()
+> check_aspect a = case fst (runAspect a) of
+>   Left e -> putStr $ prettyError e
+>   Right _ -> putStrLn "OK"
 
 * Error datatype
 
@@ -1311,13 +1328,15 @@ evaluation of the attribute.
 Inherited attributes are defined for a specific child of a
 production.  The production is determined by the Child.
 
-> inh :: Typeable a => Attr I a -> Child -> AR a -> Aspect
+> inh :: (HasCallStack, Typeable a) =>
+>   Attr I a -> Child -> AR a -> Aspect
 > inh a c = build_aspect a (child_prod c) (ensure_child c a)
 >   $ \attrs -> (emptyAttrs, c |-> attrs)
 
 Synthesized attributes are defined for the parent of a production.
 
-> syn :: Typeable a => Attr S a -> Production -> AR a -> Aspect
+> syn :: (HasCallStack, Typeable a) =>
+>   Attr S a -> Production -> AR a -> Aspect
 > syn a p = build_aspect a p (ensure_parent a)
 >   $ \attrs -> (attrs, emptyChildrenAttrs)
 
