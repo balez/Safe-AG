@@ -1,5 +1,4 @@
-* SLAG
-Safe and Lightweight Attribute Grammars for Haskell
+* Safe and Lightweight Attribute Grammars for Haskell
 
 This library defines an EDSL for first-class attribute
 grammars objects. This allows to write compilers modularly.
