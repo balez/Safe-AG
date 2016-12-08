@@ -61,6 +61,9 @@ mtl-2.2.1
 
 ** TODO
 - Add callstack to the reader monad for aspects (cf discussion [[callstacks]])
+- Make the algebra public (Production :-> SemProd) so that
+  we can use the AG dsl to define algebras. (cf prettyprinting example)
+  we need a typesafe version, with a way to describe the base functor!
 - Template haskell to generate grammar, bindings, gramDesc
 - Reorganise source code for a better presentation (easier to read an understand).
 - Longer, real-world examples
@@ -1457,7 +1460,9 @@ the same non-terminal as the parent.
 > chainP i s p = chainN i s p [prod_nt p]
 
 * Running the grammar
-** Specifying input and output
+
+** Running on a concrete type
+*** Specifying input and output
 Rather than run the AG on the general tree type.
 We must build (total) conversions between
 - t and the tree type,
@@ -1467,7 +1472,7 @@ To specify i and s, we must keep track of the attributes that
 they will be using and build conversion functions
 (i -> AttrMap) and (AttrMap -> s).
 
-*** Synthesized attributes
+**** Synthesized attributes
 For the synthesized attributes the following interface is enough.
 
 SynDesc is abstract
@@ -1490,12 +1495,12 @@ SynDesc is abstract
 >  where
 >    err = error $ "[BUG] project: undefined attribute " ++ show a
 
-**** Private
+***** Private
 
 > proj_S :: SynDesc s -> AttrMap S -> s
 > proj_S = fst . runWriter . runSynDesc
 
-*** Inherited attributes
+**** Inherited attributes
 Describing the root's inherited attribute and the terminals
 of a production follow a same pattern, therefore the
 functions are generalised over the kind of attributes and
@@ -1529,7 +1534,7 @@ will be instanciated with `I' or `T' depending on the case.
 >   mempty = emptyAttrDesc
 >   mappend = mergeAttrDesc
 
-**** Private
+***** Private
 
 > embed_dyn :: Typeable a =>
 >   Attr k a -> (t -> Dynamic) -> AttrDesc k t
@@ -1543,7 +1548,7 @@ will be instanciated with `I' or `T' depending on the case.
 > proj_I :: InhDesc i -> i -> AttrMap I
 > proj_I = fst . runWriter . runInhDesc
 
-*** Example
+**** Example
 
   #+BEGIN_SRC haskell
 data I = I { a :: Int, b :: Bool }
@@ -1558,7 +1563,7 @@ specI = embed count a # embed flag b :: InhDesc I
 specS = S <$> project output <*> project speed :: SynDesc S
   #+END_SRC
 
-** Concrete tree specification
+*** Concrete tree specification
 
 In order to run the AG in a type-safe way, we must check that
 a concrete type is compatible the context free grammar. We do
@@ -1581,7 +1586,7 @@ production, etc.  then a runtime error is thrown.
 The idea is that the programmer should really know what he's doing:
 just like when using `tail'.
 
-*** ChildDesc
+**** ChildDesc
 `ChildDesc t' is an abstract type for describing the children
 of type `t'.
 
@@ -1604,7 +1609,7 @@ a pattern matching which is the reason it might fail.
 >     proxy :: (a -> Maybe b) -> Proxy b
 >     proxy _ = Proxy
 
-*** ProdDesc
+**** ProdDesc
 
 `ProdDesc a' describes a constructor of the type `a' (viewed
 as a grammar production).
@@ -1675,7 +1680,7 @@ them.
 >     (proj, xs) = runWriter . runAttrDesc $ desc
 >     xs' = duplicates xs
 
-*** NtDesc
+**** NtDesc
 
 `NtDesc a' associates a non-terminal to the datatype `a'
 
@@ -1722,7 +1727,7 @@ them.
 >      duplicate_prods = duplicates prodlist
 >      invalid_prods = Set.filter ((nonterm /=) . prod_nt) productions
 
-*** GramDesc
+**** GramDesc
 
 `GramDesc a' associates a grammar to a family of types, where
 `a' is associated to the start symbol of the grammar: the
@@ -1766,7 +1771,7 @@ Private
 >               ++ show (typeRep d) ++ ", runtime type: "
 >               ++ show (dynTypeRep x)
 
-** Checking the AG
+*** Checking the AG
 
 The Check monad
 
@@ -1875,7 +1880,8 @@ Check the whole AG.
 > coalg :: GramMap -> Coalg
 > coalg = Map.map snd
 
-** Checking a tree
+** Running on a general tree
+*** Checking a tree
 
 Before we can execute an AG on a general tree, we must see if
 the tree is compatible with the grammar.
@@ -1903,7 +1909,7 @@ the tree is compatible with the grammar.
 >     ( invalid_terminals
 >      , missing_terminals) = terminals `symdiff` prod_ts
 
-** Checking the attributes
+*** Checking the attributes
 
 When we run the general tree we must provide a map for
 inherited attributes. We check that all the required
@@ -1921,7 +1927,7 @@ attributes are defined.
 >     attrs' = cstr `Set.map` attrs
 >     cstr (Attribute a) = Constraint a root
 
-** Running an AG on a general tree
+*** Running an AG on a general tree
 
 Abstract type for attributions.
 
@@ -1953,7 +1959,7 @@ Abstract type for attributions.
 >   check_attrs Error_RunTree_Missing (Map.keysSet inhattrs) root (require_I ctx)
 >   return $ Attrs $ unsafe_run pure_asp tree inhattrs
 
-** Semantics
+*** Semantics
 
 > type SemTree = AttrMap I -> AttrMap S
 
@@ -1993,6 +1999,54 @@ Partial function, it assumes everything has been checked before.
 >       where
 >         Match prod cmap terms = (coalg Map.! nt) dyn
 >         children = Map.mapWithKey (\k d -> sem (child_nt k) d) cmap
+
+** Computing an algebra
+Running the AG is a catamorphism, sometimes it is useful to
+know its algebra. An algebra for the attribute grammar has
+the type:
+
+    #+BEGIN_SRC haskell
+    type Algebra = Production :-> SemProd
+    type SemProd = Child :-> SemTree -> AttrMap T -> SemTree
+    type SemTree = AttrMap I -> AttrMap S
+    type SemProd = Child :-> SemTree -> AttrMap T -> SemTree
+    #+END_SRC
+
+The problem with that type is that it is unsafe.  To make it
+safe, we must make the map `child :-> SemTree' abstract, as
+well as the functions `AttrMap I -> AttrMap S', and collect
+information about them: which inherited attributes are
+required and which synthesized attributes are ensured for
+each child, all of this in the context of a production.
+
+ #+BEGIN_SRC haskell
+runAlgebra :: Aspect -> AlgInput -> Attrs I -> Check (Attrs S)
+ #+END_SRC
+
+The approach is very similar to the one for defining aspects
+and gathering constraints, with `AlgM' playing the role of
+the `A' monad, `SemTreeM' playing the role of the `R' monad,
+and `AlgRuleM' playing the role of `AR' monoid.
+
+> type AlgM a = ReaderT Child (ExceptT Error (Writer Context)) a
+> type SemTreeM a = Reader (AttrMap I) a
+> newtype AlgRule a = AlgRule (AlgM (SemTreeM a))
+> type PureAlgRule = AlgRule (AttrMap S)
+> newtype AlgInput = AlgInput (Child :-> PureAlgRule)
+
+The previous types are abstract. We provide the following
+primitives to build values.
+
+ > projI :: Typeable a => Attr I a -> AlgRuleM a
+ > synAlg :: Typeable a => Attr S a -> Child -> AlgRule a -> AlgInput
+ > emptyInput :: Production -> AlgInput
+ > mergeInput :: AlgInput -> AlgInput -> AlgInput
+ > pureAlgRule :: a -> AlgRule a
+ > appAlgRule :: AlgRule (a -> b) -> AlgRule a -> AlgRule b
+
+Note that mergeInput must check that both inputs are
+compatible: the children in the map must be all siblings of
+the same production.
 
 * Literate Haskell with org-mode
 The documentation part of this literate file is written in
