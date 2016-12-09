@@ -43,15 +43,13 @@ margin = attr "margin" T pInt
      :| indent :@ [indented]
      :| beside :@ [left, right]
      :| above :@ [upper, lower]
-     :| choice :@ [opt_a, opt_b]
  ]
  = grammar $
    [ "PP" ::= "Empty" :@ [] :& x
            :| "Text"  :@ [] :& string & x
            :| "Indent" :@ ["indented" ::: pp] :& margin & x
            :| "Beside" :@ ["left" ::: pp, "right" ::: pp] :& x
-           :| "Above" :@ ["upper" ::: pp, "lower" ::: pp] :& x
-           :| "Choice" :@ ["opt_a" ::: pp, "opt_b" ::: pp] :& x ]
+           :| "Above" :@ ["upper" ::: pp, "lower" ::: pp] :& x ]
   where x = nilT
         (&) :: Typeable a => Attr T a -> Terminals -> Terminals
         (&) = consT
@@ -62,29 +60,11 @@ t s = node text  mempty (string |=> s)
 i m d = node indent (indented |-> d) (margin |=> m)
 l >|< r = node beside (left |-> l \/ right |-> r) mempty
 u >-< l = node above (upper |-> u \/ lower |-> l) mempty
-a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
 a >||< b = a >|< t " " >|< b
 
 -- example
 example1 = (t "when a writer" >-< t "needs some inspiration ")
   >|< (t "there is nothing better" >-< (t "|" >|< i 5 (t "than") >-< (t "|" >|< i 10 (t "drinking"))))
-
-
-pp_ites condD thenD elseD
-  =   ifc >||< thent >||< elsee  >||< fi
-  >^< ifc >||<  t "then"
-      >-< i 2 thenD
-      >-< t "else"
-      >-< i 2 elseD
-      >-< fi
-  >^< ifc >-< thent >-< elsee  >-< fi
-  >^< ifc >||< (thent >-< elsee) >-< fi
-  where ifc   = t "if"   >||< condD
-        thent = t "then" >||< thenD
-        elsee = t "else" >||< elseD
-        fi    = t "fi"
-
-example2 = pp_ites (t "x < y") (t "print foobar") (t "print y")
 
 -- attributes
 
@@ -166,3 +146,50 @@ test x = case runTree allA pp x mempty of
   Right s -> do {putStr $ unlines (map from_str (s ! body)); putStrLn (from_str (s ! last_line))}
   where m ! x = fromJust $ lookup_attrs x m
         fromJust (Just x) = x
+
+-- introducing a choice operator and a page width attribute
+
+choice :@ [opt_a, opt_b] =
+  productions $
+    pp ::= "Choice" :@ ["opt_a" ::: pp, "opt_b" ::: pp] :& nilT
+
+a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
+
+-- example
+
+pp_ites condD thenD elseD
+  =   ifc >||< thent >||< elsee  >||< fi
+  >^< ifc >||<  t "then"
+      >-< i 2 thenD
+      >-< t "else"
+      >-< i 2 elseD
+      >-< fi
+  >^< ifc >-< thent >-< elsee  >-< fi
+  >^< ifc >||< (thent >-< elsee) >-< fi
+  where ifc   = t "if"   >||< condD
+        thent = t "then" >||< thenD
+        elsee = t "else" >||< elseD
+        fi    = t "fi"
+
+example2 = pp_ites (t "x < y") (t "print foobar") (t "print y")
+
+-- page width
+
+pw = attr "page_width" I pInt
+
+{- we will be working on lists of formats now.  Formats are
+records of the synthesized attributes height, last_width,
+total_width, body, last_line In order to compute the list of
+formats we will be using the algebras that are defined by the
+previous AG. We need a public access to the AG algebra.
+
+type Algebra = Production :-> SemProd
+  = Production :-> ((Child :-> SemTree) -> AttrMap T -> SemTree)
+  = Production :-> ((Child :-> (AttrMap I -> AttrMap S)) -> AttrMap T -> AttrMap I -> AttrMap S)
+-}
+
+{-
+Local Variables:
+compile-command: "ghc PrettyPrinting"
+End:
+-}

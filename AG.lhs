@@ -220,6 +220,13 @@ We keep the context and errors abstract, we can only `show' them.
 > , Check
 > , run , runTree
 
+*** AG Algebra
+**** Specifying the input
+
+> , AlgInput, AlgRule, projI, synAlg, emptyInput, mergeInput
+
+*** End-of-export
+
 > )
 > where
 
@@ -1965,6 +1972,7 @@ Abstract type for attributions.
 
 > type SemProd = Child :-> SemTree -> AttrMap T -> SemTree
 
+`sem_prod' ties the knot of attribute computation.
 Note: we need to extend the domain of inh_children to cover
 all the children of the current production.
 
@@ -1978,17 +1986,22 @@ all the children of the current production.
 > unsafe_run :: PureAspect -> InputTree -> SemTree
 > unsafe_run = sem_tree . Map.map sem_prod
 
-`sem_tree' computes the iteration of the algebra.
+`sem_tree' computes the iteration of the algebra on a tree.
+This function is partial: it assumes everything has been
+checked before.
 
 > sem_tree :: Production :-> SemProd -> InputTree -> SemTree
 > sem_tree alg = sem
->   where sem (Node p cs ts) = (alg Map.! p)  (Map.map sem cs) ts
+>   where sem (Node p cs ts) = (alg Map.! p) (Map.map sem cs) ts
 
 A Dynamic tree coalgebra
 
 > type Coalg = NonTerminal :-> (Dynamic -> Match)
 
-Partial function, it assumes everything has been checked before.
+
+`sem_coalg' iterates the AG-algebra on a tree-coalgebra, this
+function is partial: it assumes everything has been checked
+before.
 
 > sem_coalg ::
 >   Production :-> SemProd ->
@@ -2020,33 +2033,82 @@ required and which synthesized attributes are ensured for
 each child, all of this in the context of a production.
 
  #+BEGIN_SRC haskell
-runAlgebra :: Aspect -> AlgInput -> Attrs I -> Check (Attrs S)
+runAlgebra :: Aspect -> AlgInput -> Attrs T -> Attrs I -> Check (Attrs S)
  #+END_SRC
 
 The approach is very similar to the one for defining aspects
 and gathering constraints, with `AlgM' playing the role of
 the `A' monad, `SemTreeM' playing the role of the `R' monad,
-and `AlgRuleM' playing the role of `AR' monoid.
+and `AlgRule' playing the role of `AR' monoid.
 
-> type AlgM a = ReaderT Child (ExceptT Error (Writer Context)) a
-> type SemTreeM a = Reader (AttrMap I) a
-> newtype AlgRule a = AlgRule (AlgM (SemTreeM a))
-> type PureAlgRule = AlgRule (AttrMap S)
-> newtype AlgInput = AlgInput (Child :-> PureAlgRule)
+> newtype AlgM a = AlgM {runAlgM :: ReaderT Child (ExceptT Error (Writer AlgCtx)) a}
+>  deriving (Functor, Applicative, Monad, MonadReader Child, MonadError Error, MonadWriter AlgCtx)
+> newtype SemTreeM a = SemTreeM {runSemTreeM :: Reader (AttrMap I) a}
+>  deriving (Functor, Applicative, Monad, MonadReader (AttrMap I))
+> newtype AlgRule a = AlgRule {runAlgRule :: AlgM (SemTreeM a)}
+> newtype AlgInput = AlgInput (Maybe (Production, Child :-> AlgRule (AttrMap S)))
+
+The context type is different we ensure synthesized
+attributes for children rather than productions.
+
+> data AlgCtx = AlgCtx
+>   { algCtx_I :: Set Require_I
+>   , algCtx_S :: Set (Constraint S Child)
+>   }
+
+> emptyAlgCtx = AlgCtx Set.empty Set.empty
+> mergeAlgCtx (AlgCtx i s) (AlgCtx i' s') =
+>   AlgCtx (Set.union i i') (Set.union s s')
+
+> instance Monoid AlgCtx where
+>   mempty = emptyAlgCtx
+>   mappend = mergeAlgCtx
 
 The previous types are abstract. We provide the following
 primitives to build values.
 
- > projI :: Typeable a => Attr I a -> AlgRuleM a
- > synAlg :: Typeable a => Attr S a -> Child -> AlgRule a -> AlgInput
- > emptyInput :: Production -> AlgInput
- > mergeInput :: AlgInput -> AlgInput -> AlgInput
- > pureAlgRule :: a -> AlgRule a
- > appAlgRule :: AlgRule (a -> b) -> AlgRule a -> AlgRule b
+> instance Applicative AlgRule where
+>   pure x = AlgRule (pure (pure x))
+>   AlgRule f <*> AlgRule x = AlgRule ((<*>) <$> f <*> x)
+> instance Functor AlgRule where
+>   fmap f x = pure f <*> x
+
+> projI :: Typeable a => Attr I a -> AlgRule a
+> projI a = AlgRule $ do
+>  c <- ask
+>  tell $ emptyAlgCtx { algCtx_I = cstr a (child_nt c) }
+>  return $ do
+>    is <- ask
+>    return $ fromMaybe err $ lookupAttr a is
+>   where
+>     err = error $ "[BUG] projI: undefined attribute " ++ show a
+
+> synAlg :: Typeable a => Attr S a -> Child -> AlgRule a -> AlgInput
+> synAlg a c r =
+>   AlgInput $ return (child_prod c, c |-> singleAttr a <$> r')
+>  where
+>   r' = AlgRule $ local (const c) (constraint >> runAlgRule r)
+>   constraint = tell $ emptyAlgCtx { algCtx_S = cstr a c }
+
+> emptyInput :: Production -> AlgInput
+> emptyInput p = AlgInput $ return (p, Map.empty)
 
 Note that mergeInput must check that both inputs are
 compatible: the children in the map must be all siblings of
 the same production.
+
+> mergeInput :: AlgInput -> AlgInput -> AlgInput
+> mergeInput (AlgInput x) (AlgInput y) = AlgInput $ do
+>   (p, m) <- x
+>   (p', m') <- y
+>   guard (p == p')
+>   return (p, Map.unionWith mergeAlgRule m m')
+
+`mergeAlgRule' is private, we go through two monads.
+
+> mergeAlgRule :: Op (AlgRule (AttrMap S))
+> mergeAlgRule (AlgRule x) (AlgRule y) = AlgRule $
+>   liftM2 (liftM2 mergeAttrs) x y
 
 * Literate Haskell with org-mode
 The documentation part of this literate file is written in
