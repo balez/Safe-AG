@@ -86,7 +86,7 @@ The same grammar is written as follows:
 > rootDesc = ntDesc root
 >    [ prodDesc start
 >        [ childDesc startTree startTreeProj ]
->        emptyAttrDesc
+>        []
 >    ]
 >   `insert_nt`
 >    (gramDesc $
@@ -94,9 +94,9 @@ The same grammar is written as follows:
 >      [ prodDesc fork
 >          [ childDesc leftTree leftTreeProj
 >          , childDesc rightTree rightTreeProj]
->          emptyAttrDesc
->      , prodDesc leaf [] (embed_T val leafProj)]
->      )
+>          []
+>      , prodDesc leaf [] [termDesc val leafProj]
+>      ])
 >  where
 >    leftTreeProj (Fork l r) = Just l
 >    leftTreeProj _ = Nothing
@@ -106,7 +106,7 @@ The same grammar is written as follows:
 >    leafProj _ = Nothing
 >    startTreeProj (Start t) = Just t
 
-> repminI = emptyAttrDesc
+> repminI = emptyInhDesc
 > repminS = project ntree
 
 ** Grammar
@@ -193,7 +193,7 @@ Trying the error system
 
 *** Running
 
-> flattenI = emptyAttrDesc
+> flattenI = emptyInhDesc
 > flattenS = project flat
 
 > flattenAG = (\f r -> f r ()) <$> run rootDesc flattenI flattenS flattenA

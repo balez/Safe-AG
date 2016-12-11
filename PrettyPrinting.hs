@@ -80,14 +80,14 @@ is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
   where zero 0 0 0 = True
         zero _ _ _ = False
 
-emptyA = defS empty
+emptyA = def_S empty
   [ body        |= pure []
   , last_line   |= pure nil
   , height      |= pure 0
   , last_width  |= pure 0
   , total_width |= pure 0]
 
-textA = defS text
+textA = def_S text
   [ body |= pure []
   , last_line |= str <$> ter string
   , height     |= pure 1
@@ -96,7 +96,7 @@ textA = defS text
   where
     len = length <$> ter string
 
-indentA = defS indent
+indentA = def_S indent
   [ body        --> (\tabs body -> append tabs `map` body) <$> tabs <*> indented!body
   , last_line   --> append <$> tabs <*> indented!last_line
   , height      |= indented!height
@@ -107,7 +107,7 @@ indentA = defS indent
     x --> y = x |= ifteA (is_empty indented) (indented!x) y
     tabs = spaces <$> ter margin
 
-besideA = defS beside
+besideA = def_S beside
   [ body -->  if_empty_right_body (left!body) beside_body
   , last_line --> append <$> if_empty_right_body (left!last_line) tabs
                          <*> right!last_line
@@ -128,7 +128,7 @@ besideA = defS beside
       where f sp lb ll (rb : rbs) =
               lb ++ (append ll rb) : (append sp `map` rbs)
 
-aboveA = defS above
+aboveA = def_S above
   [ body --> (++) <$> upper!body <*> ((:) <$> upper!last_line <*> lower!body)
   , last_line --> lower!last_line
   , height --> (+) <$> upper!height <*> lower!height
