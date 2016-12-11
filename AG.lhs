@@ -130,9 +130,13 @@ can implement a very flexible namespace system.
 
 > ((#)
 
+*** Maps
+
+> , (|->), (\/)
+
 *** General trees
 
-> , Tree, InputTree, node, (|->), (\/)
+> , Tree, InputTree, node
 
 *** Context free grammar
 **** Types
@@ -184,7 +188,7 @@ can implement a very flexible namespace system.
 
 **** Generic rules
 
-> , copy, copyN, copyP, copyG, copyGN
+> , copy, copyN, copyP, copyPs, copyG
 > , collect, collectAll, collectP
 > , chain, chainN, chainP
 
@@ -317,6 +321,9 @@ Set operations
 > symmetric op a b = (a `op` b, b `op` a)
 > symdiff :: Ord a => Set a -> Set a -> (Set a, Set a)
 > symdiff = symmetric Set.difference
+
+> set_diff :: Ord a => [a] -> [a] -> Set a
+> set_diff = Set.difference `on` Set.fromList
 
 ** Dynamics
 
@@ -1093,7 +1100,7 @@ Note: we collect the errors from each production.
 >    asp_err = do
 >      errors <- errors_ag
 >      if null errors then asp_ag
->      else throwErrorC $ Errors errors
+>      else throwErrorCheck $ Errors errors
 >    asp_ar = traverse runAR asp -- A (Production :-> R OutAttrs)
 >    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
 >    err = error "[BUG] runAspect: unexpected use of production."
@@ -1135,6 +1142,9 @@ Note: we collect the errors from each production.
 >   | Error_Tree_Invalid_Terminals (AttrSet T) Production
 >   | Error_Tree_Missing_Terminals (AttrSet T) Production
 >   | Error_RunTree_Missing (Set Require_I)
+>   | Error_Algebra_Different_Productions Production Production
+>   | Error_Algebra_Invalid_Children (Set Child) Production
+>   | Error_Algebra_Missing_Children (Set Child) Production
 >   | Errors [Error]
 >   deriving Show
 
@@ -1145,8 +1155,8 @@ Note: we collect the errors from each production.
 > throwErrorA :: HasCallStack => ErrorMsg -> A a
 > throwErrorA e = throwError (Error (e, popCallStack callStack))
 
-> throwErrorC :: HasCallStack => ErrorMsg -> Check a
-> throwErrorC e = throwError (Error (e, popCallStack callStack))
+> throwErrorCheck :: HasCallStack => ErrorMsg -> Check a
+> throwErrorCheck e = throwError (Error (e, popCallStack callStack))
 
 ** pretty printing
 
@@ -1388,6 +1398,9 @@ primitives and could be defined by the user.
 > copy :: Typeable a => Attr I a -> Child -> Aspect
 > copy a c = inh a c (par a)
 
+`copyN' takes a list of children for which the attribute is
+to be copied.
+
 > copyN :: Typeable a => Attr I a -> Children -> Aspect
 > copyN a cs = concatAspects . map (copy a) $ cs
 
@@ -1399,17 +1412,16 @@ the children that have the same non-terminal.
 >   where cs = [ c | c <- prod_children p
 >                  , child_nt c == prod_nt p ]
 
-`copyG' implements the copy rule systematically for a whole
-grammar.
+`copyPs' implements the copy rule for a list of production.
 
-> copyG :: Typeable a => Attr I a -> Grammar -> Aspect
-> copyG a = Set.foldr (\p r -> copyP a p # r) emptyAspect
+> copyPs :: Typeable a => Attr I a -> [Production] -> Aspect
+> copyPs a = foldr (\p r -> copyP a p # r) emptyAspect
 
-`copyGN' only implements the copy rule for the given
-nonterminal, but applies it to all the productions in the grammar.
+`copyG' implements the copy rule for all the productions of a
+non-terminal in a given grammar.
 
-> copyGN :: Typeable a => Attr I a -> NonTerminal -> Grammar -> Aspect
-> copyGN a n g = copyG a $ Set.filter (\p -> prod_nt p == n) g
+> copyG :: Typeable a => Attr I a -> NonTerminal -> Grammar -> Aspect
+> copyG a n g = copyPs a [p | p <- Set.toList g, prod_nt p == n]
 
 ** Collect
 `collect' applies a function to the attributes of a list of children
@@ -1529,7 +1541,8 @@ will be instanciated with `I' or `T' depending on the case.
 > embed_T :: Typeable a =>
 >   Attr T a -> (t -> Maybe a) -> TermDesc t
 > embed_T a p = embed_dyn a (toDyn . fromMaybe err . p)
->   where err = error $ "[BUG] embed_T: match error to compute terminal: " ++ show a
+>   where err = error $ "embed_T: match error to compute terminal: "
+>                     ++ show a ++ " due to incorrect prodDesc specification." -- or bug
 
 > mergeAttrDesc :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t
 > AttrDesc x `mergeAttrDesc` AttrDesc y =
@@ -1645,15 +1658,15 @@ them.
 >  where
 >  this
 >   | not (null duplicate_children) =
->       throwErrorC $ Error_ProdDesc_Duplicate_Children duplicate_children prod
+>       throwErrorCheck $ Error_ProdDesc_Duplicate_Children duplicate_children prod
 >   | not (Set.null invalid_children) =
->       throwErrorC $ Error_ProdDesc_Invalid_Children invalid_children prod
+>       throwErrorCheck $ Error_ProdDesc_Invalid_Children invalid_children prod
 >   | not (Set.null missing_children) =
->       throwErrorC $ Error_ProdDesc_Missing_Children missing_children prod
+>       throwErrorCheck $ Error_ProdDesc_Missing_Children missing_children prod
 >   | not (Set.null invalid_terminals) =
->       throwErrorC $ Error_ProdDesc_Invalid_Terminals invalid_terminals prod
+>       throwErrorCheck $ Error_ProdDesc_Invalid_Terminals invalid_terminals prod
 >   | not (Set.null missing_terminals) =
->       throwErrorC $ Error_ProdDesc_Missing_Terminals missing_terminals prod
+>       throwErrorCheck $ Error_ProdDesc_Missing_Terminals missing_terminals prod
 >   | otherwise = do
 >       check_attr_unique (\ts -> Error_ProdDesc_Duplicate_Terminals ts prod) ts
 >       return $ ProdDescRec prod children_types match
@@ -1666,9 +1679,8 @@ them.
 >     -- Checking children
 >     duplicate_children = duplicates cs
 >     ( invalid_children
->      , missing_children) = symmetric diff cs (prod_children prod)
+>      , missing_children) = symmetric set_diff cs (prod_children prod)
 >     cs = childDesc_child <$> cds
->     diff = Set.difference `on` Set.fromList
 >     -- Checking terminals
 >     prod_terms = prod_terminals prod
 >     terms = Set.fromList term_attrs
@@ -1682,7 +1694,7 @@ them.
 >   ([Attribute k] -> ErrorMsg) -> AttrDesc k t -> Check ()
 > check_attr_unique err desc
 >   | null xs' = return ()
->   | otherwise = throwErrorC $ err xs'
+>   | otherwise = throwErrorCheck $ err xs'
 >   where
 >     (proj, xs) = runWriter . runAttrDesc $ desc
 >     xs' = duplicates xs
@@ -1716,15 +1728,15 @@ them.
 >   this :: [ProdDescRec a] -> Check (NtDescRec a)
 >   this ps
 >    | not (null duplicate_prods) =
->        throwErrorC $ Error_NtDesc_Duplicate_Productions duplicate_prods nonterm
+>        throwErrorCheck $ Error_NtDesc_Duplicate_Productions duplicate_prods nonterm
 >    | not (Set.null invalid_prods) =
->        throwErrorC $ Error_NtDesc_Invalid_Productions invalid_prods nonterm
+>        throwErrorCheck $ Error_NtDesc_Invalid_Productions invalid_prods nonterm
 >    | otherwise = return $ NtDescRec nonterm productions children_types (match ps)
 >    where
 >      productions = Set.fromList prodlist
 >      children_types = Map.unions (prodDesc_children_types <$> ps)
 >      -- Pattern matching function
->      match [] x = error "ntDesc: match failure due to incorrect gramDesc specification" -- (or bug from the library)
+>      match [] x = error "ntDesc: match failure due to incorrect gramDesc specification." -- or bug
 >      match (p:ps) x =
 >        maybe (match ps x)
 >              (\(cs, ts) -> Match (prodDesc_prod p) cs ts)
@@ -1764,7 +1776,7 @@ root of the tree will have type `a'.
 >   (_, gram_prods, gram_children_types, gram_match) <- runGramDesc gdesc
 >   let nt = ntDesc_nt n
 >   when (nt `Map.member` gram_match)
->     $ throwErrorC $ Error_GramDesc_Duplicate nt
+>     $ throwErrorCheck $ Error_GramDesc_Duplicate nt
 >   let match = Map.insert nt (typeRep ndesc, nt_match n) gram_match
 >   let children_types = Map.union (ntDesc_children_types n) gram_children_types
 >   let grammar = Set.union (ntDesc_prods n) gram_prods
@@ -1809,7 +1821,7 @@ ensured by the rules.
 >   SynDesc s -> Grammar -> NonTerminal -> Set Ensure_S -> Check ()
 > check_syn_ensured desc prods root ens
 >   | Set.null missing = return ()
->   | otherwise = throwErrorC $ Error_SynDesc_Missing missing
+>   | otherwise = throwErrorCheck $ Error_SynDesc_Missing missing
 >   where
 >     missing = unionSets (missing_S prods ens) ss'
 >     ss' = Set.map cstr ss
@@ -1830,9 +1842,9 @@ with the typeRep associated with each `childDesc'.
 >   Child :-> TypeRep -> GramMap -> Check ()
 > check_children_types types gram
 >   | not (Set.null missing) =
->       throwErrorC $ Error_GramDesc_Missing missing
+>       throwErrorCheck $ Error_GramDesc_Missing missing
 >   | not (Map.null wrong_types) =
->       throwErrorC $ Error_GramDesc_Wrong_Types (Map.keysSet wrong_types)
+>       throwErrorCheck $ Error_GramDesc_Wrong_Types (Map.keysSet wrong_types)
 >   | otherwise = return ()
 >  where
 >    (!) = (Map.!)
@@ -1844,7 +1856,7 @@ with the typeRep associated with each `childDesc'.
 > check_missing ::
 >   Missing -> Check ()
 > check_missing missing
->   | not (nullMissing missing) = throwErrorC $ Error_Missing missing
+>   | not (nullMissing missing) = throwErrorCheck $ Error_Missing missing
 >   | otherwise = return ()
 
 We check that the children have unique names for each production.
@@ -1857,7 +1869,7 @@ We check that the children have unique names for each production.
 >   Production -> Check ()
 > check_production prod
 >   | not (null dup) =
->       throwErrorC $ Error_Production_Duplicate_Children_Names dup prod
+>       throwErrorCheck $ Error_Production_Duplicate_Children_Names dup prod
 >   | otherwise = return ()
 >   where
 >     dup = duplicates (fst <$> prod_orphans prod)
@@ -1896,13 +1908,13 @@ the tree is compatible with the grammar.
 > tree_gram :: InputTree -> Check Grammar
 > tree_gram (Node prod cs ts)
 >   | not (Set.null invalid_children) =
->       throwErrorC $ Error_Tree_Invalid_Children invalid_children prod
+>       throwErrorCheck $ Error_Tree_Invalid_Children invalid_children prod
 >   | not (Set.null missing_children) =
->       throwErrorC $ Error_Tree_Missing_Children missing_children prod
+>       throwErrorCheck $ Error_Tree_Missing_Children missing_children prod
 >   | not (Set.null invalid_terminals) =
->       throwErrorC $ Error_Tree_Invalid_Terminals invalid_terminals prod
+>       throwErrorCheck $ Error_Tree_Invalid_Terminals invalid_terminals prod
 >   | not (Set.null missing_terminals) =
->       throwErrorC $ Error_Tree_Missing_Terminals missing_terminals prod
+>       throwErrorCheck $ Error_Tree_Missing_Terminals missing_terminals prod
 >   | otherwise =
 >       Map.foldr (\t ag_g -> liftM2 Set.union ag_g (tree_gram t))
 >                 (return (Set.singleton prod)) cs
@@ -1927,7 +1939,7 @@ attributes are defined.
 >   AttrSet I  -> NonTerminal -> Set Require_I -> Check ()
 > check_attrs err attrs root req
 >   | Set.null missing = return ()
->   | otherwise = throwErrorC $ err missing
+>   | otherwise = throwErrorCheck $ err missing
 >   where
 >     missing = Set.difference req' attrs'
 >     req' = Set.filter ((root ==) . constr_obj) req
@@ -2032,10 +2044,6 @@ information about them: which inherited attributes are
 required and which synthesized attributes are ensured for
 each child, all of this in the context of a production.
 
- #+BEGIN_SRC haskell
-runAlgebra :: Aspect -> AlgInput -> Attrs T -> Attrs I -> Check (Attrs S)
- #+END_SRC
-
 The approach is very similar to the one for defining aspects
 and gathering constraints, with `AlgM' playing the role of
 the `A' monad, `SemTreeM' playing the role of the `R' monad,
@@ -2046,7 +2054,7 @@ and `AlgRule' playing the role of `AR' monoid.
 > newtype SemTreeM a = SemTreeM {runSemTreeM :: Reader (AttrMap I) a}
 >  deriving (Functor, Applicative, Monad, MonadReader (AttrMap I))
 > newtype AlgRule a = AlgRule {runAlgRule :: AlgM (SemTreeM a)}
-> newtype AlgInput = AlgInput (Maybe (Production, Child :-> AlgRule (AttrMap S)))
+> newtype AlgInput = AlgInput (Check (Production, Child :-> AlgRule (AttrMap S)))
 
 The context type is different we ensure synthesized
 attributes for children rather than productions.
@@ -2101,7 +2109,7 @@ the same production.
 > mergeInput (AlgInput x) (AlgInput y) = AlgInput $ do
 >   (p, m) <- x
 >   (p', m') <- y
->   guard (p == p')
+>   when (p /= p') $ throwErrorCheck $ Error_Algebra_Different_Productions p p'
 >   return (p, Map.unionWith mergeAlgRule m m')
 
 `mergeAlgRule' is private, we go through two monads.
@@ -2109,6 +2117,27 @@ the same production.
 > mergeAlgRule :: Op (AlgRule (AttrMap S))
 > mergeAlgRule (AlgRule x) (AlgRule y) = AlgRule $
 >   liftM2 (liftM2 mergeAttrs) x y
+
+ > runAlgebra :: Aspect -> AlgInput -> Attrs T -> Attrs I -> Check (Attrs S)
+ > runAlgebra aspect input terminals inherited = do
+ >   (p, rs) <- check_input input
+ >   let (check_aspect, ctx) = runAspect aspect
+ >   pure_asp <- check_aspect
+ >   check_missing_alg (missing_alg ctx TODO)
+ >   return empty_attrs
+
+private
+
+> check_input :: AlgInput -> Check (Production, Child :-> AlgRule (AttrMap S))
+> check_input (AlgInput x) = do
+>   (prod, rules) <- x
+>   let (invalid_children, missing_children) =
+>          symmetric set_diff (Map.keys rules) (prod_children prod)
+>   unless (null invalid_children)
+>     $ throwErrorCheck $ Error_Algebra_Invalid_Children invalid_children prod
+>   unless (null missing_children)
+>     $ throwErrorCheck $ Error_Algebra_Missing_Children missing_children prod
+>   return (prod, rules)
 
 * Literate Haskell with org-mode
 The documentation part of this literate file is written in

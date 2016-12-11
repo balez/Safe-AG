@@ -12,7 +12,7 @@
 ** Module Imports
 
 > module Main where
-> import Data.Dynamic
+> import Data.Dynamic (Typeable, Proxy(..))
 > import qualified Data.Set as Set
 > import qualified Data.Map as Map
 > import Control.Applicative
@@ -248,8 +248,6 @@ Trying the error system
 >        fromJust (Just x) = x
 
 * Testing the error messages
-
-> test_aspect asp = case check_aspect asp of {Left e -> putStr (prettyError e) ;_ -> return ()}
 
 ** duplicated rule
 
