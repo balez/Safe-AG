@@ -212,7 +212,7 @@ We keep the context and errors abstract, we can only `show' them.
 
 ***** Terminal attributes
 
-> , TermDesc, embed_T -- Monoid
+> , TermDesc, termDesc
 
 ***** Tree
 
@@ -1520,16 +1520,14 @@ SynDesc is abstract
 > proj_S = fst . runWriter . runSynDesc
 
 **** Inherited attributes
-Describing the root's inherited attribute and the terminals
-of a production follow a same pattern, therefore the
-functions are generalised over the kind of attributes and
-will be instanciated with `I' or `T' depending on the case.
+
+If AttrDesc is only used for inherited attributes, we will no
+longer need this general definition.
 
 > newtype AttrDesc k t  = AttrDesc { runAttrDesc ::
 >    Writer ([Attribute k]) (t -> AttrMap k) }
 
 > type InhDesc = AttrDesc I
-> type TermDesc = AttrDesc T
 
 > emptyAttrDesc :: AttrDesc k t
 > emptyAttrDesc = AttrDesc $ return $ pure $ Map.empty
@@ -1537,12 +1535,6 @@ will be instanciated with `I' or `T' depending on the case.
 > embed_I :: Typeable a =>
 >   Attr I a -> (i -> a) -> InhDesc i
 > embed_I a p = embed_dyn a (toDyn . p)
-
-> embed_T :: Typeable a =>
->   Attr T a -> (t -> Maybe a) -> TermDesc t
-> embed_T a p = embed_dyn a (toDyn . fromMaybe err . p)
->   where err = error $ "embed_T: match error to compute terminal: "
->                     ++ show a ++ " due to incorrect prodDesc specification." -- or bug
 
 > mergeAttrDesc :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t
 > AttrDesc x `mergeAttrDesc` AttrDesc y =
@@ -1563,7 +1555,6 @@ will be instanciated with `I' or `T' depending on the case.
 >   return $ Map.singleton (Attribute a) . p
 
 > runInhDesc = runAttrDesc
-> runTermDesc = runAttrDesc
 
 > proj_I :: InhDesc i -> i -> AttrMap I
 > proj_I = fst . runWriter . runInhDesc
@@ -1629,6 +1620,19 @@ a pattern matching which is the reason it might fail.
 >     proxy :: (a -> Maybe b) -> Proxy b
 >     proxy _ = Proxy
 
+**** TermDesc
+
+> data TermDesc t = TermDesc
+>   { termDesc_attr :: Attribute T
+>   , termDesc_proj :: t -> Maybe (Attribute T, Dynamic) }
+
+> termDesc :: (Typeable a, Typeable b) =>
+>   Attr T b -> (a -> Maybe b) -> TermDesc a
+> termDesc a p = TermDesc a' p'
+>   where
+>     a' = Attribute a
+>     p' x = (\y -> (a', toDyn y)) <$> p x
+
 **** ProdDesc
 
 `ProdDesc a' describes a constructor of the type `a' (viewed
@@ -1653,8 +1657,8 @@ terminals than the production needs.  we will just ignore
 them.
 
 > prodDesc :: (Typeable a) =>
->   Production -> [ChildDesc a] -> TermDesc a -> ProdDesc a
-> prodDesc prod cds ts = ProdDesc $ this
+>   Production -> [ChildDesc a] -> [TermDesc a] -> ProdDesc a
+> prodDesc prod cds tds = ProdDesc $ this
 >  where
 >  this
 >   | not (null duplicate_children) =
@@ -1663,29 +1667,31 @@ them.
 >       throwErrorCheck $ Error_ProdDesc_Invalid_Children invalid_children prod
 >   | not (Set.null missing_children) =
 >       throwErrorCheck $ Error_ProdDesc_Missing_Children missing_children prod
+>   | not (null duplicate_terminals) =
+>       throwErrorCheck $ Error_ProdDesc_Duplicate_Terminals duplicate_terminals prod
 >   | not (Set.null invalid_terminals) =
 >       throwErrorCheck $ Error_ProdDesc_Invalid_Terminals invalid_terminals prod
 >   | not (Set.null missing_terminals) =
 >       throwErrorCheck $ Error_ProdDesc_Missing_Terminals missing_terminals prod
->   | otherwise = do
->       check_attr_unique (\ts -> Error_ProdDesc_Duplicate_Terminals ts prod) ts
->       return $ ProdDescRec prod children_types match
+>   | otherwise = return $ ProdDescRec prod children_types match
 >   where
->     match = liftA2 (liftA2 (,)) child_proj (Just . term_proj)
+>     match = liftA2 (liftA2 (,)) child_proj term_proj
 >     children_types = Map.fromList $ child_type <$> cds
 >     child_type c = (childDesc_child c, childDesc_type c)
 >     child_proj = fmap Map.fromList . sequence . traverse childDesc_proj cds
->     (term_proj, term_attrs) = runWriter . runTermDesc $ ts
+>     ts = termDesc_attr <$> tds
+>     term_attrs = Set.fromList ts
+>     term_proj = fmap Map.fromList . sequence . traverse termDesc_proj tds
 >     -- Checking children
 >     duplicate_children = duplicates cs
 >     ( invalid_children
 >      , missing_children) = symmetric set_diff cs (prod_children prod)
 >     cs = childDesc_child <$> cds
 >     -- Checking terminals
+>     duplicate_terminals = duplicates ts
 >     prod_terms = prod_terminals prod
->     terms = Set.fromList term_attrs
 >     ( invalid_terminals
->      , missing_terminals) = symdiff terms prod_terms
+>      , missing_terminals) = symdiff term_attrs prod_terms
 
 `check_attr_unique' is private, but used by `check_inh_unique' and
 `prodDesc'.
