@@ -207,8 +207,7 @@ We keep the context and errors abstract, we can only `show' them.
 
 ***** Inherited attributes
 
-> , AttrDesc, emptyAttrDesc, mergeAttrDesc -- Monoid
-> , InhDesc, embed_I -- Monoid
+> , InhDesc, emptyInhDesc, mergeInhDesc, embed_I -- Monoid
 
 ***** Terminal attributes
 
@@ -1521,40 +1520,29 @@ SynDesc is abstract
 
 **** Inherited attributes
 
-If AttrDesc is only used for inherited attributes, we will no
-longer need this general definition.
+> newtype InhDesc t  = InhDesc { runInhDesc ::
+>    Writer ([Attribute I]) (t -> AttrMap I) }
 
-> newtype AttrDesc k t  = AttrDesc { runAttrDesc ::
->    Writer ([Attribute k]) (t -> AttrMap k) }
-
-> type InhDesc = AttrDesc I
-
-> emptyAttrDesc :: AttrDesc k t
-> emptyAttrDesc = AttrDesc $ return $ pure $ Map.empty
+> emptyInhDesc :: InhDesc t
+> emptyInhDesc = InhDesc $ return $ pure $ Map.empty
 
 > embed_I :: Typeable a =>
 >   Attr I a -> (i -> a) -> InhDesc i
-> embed_I a p = embed_dyn a (toDyn . p)
+> embed_I a p = InhDesc $ do
+>   tell [Attribute a]
+>   return $ Map.singleton (Attribute a) . toDyn . p
 
-> mergeAttrDesc :: AttrDesc k t -> AttrDesc k t -> AttrDesc k t
-> AttrDesc x `mergeAttrDesc` AttrDesc y =
->   AttrDesc $ liftA2 union x y
+> mergeInhDesc :: InhDesc t -> InhDesc t -> InhDesc t
+> InhDesc x `mergeInhDesc` InhDesc y =
+>   InhDesc $ liftA2 union x y
 >  where
 >    union f g = \x -> Map.union (f x) (g x)
 
-> instance Monoid (AttrDesc k t) where
->   mempty = emptyAttrDesc
->   mappend = mergeAttrDesc
+> instance Monoid (InhDesc t) where
+>   mempty = emptyInhDesc
+>   mappend = mergeInhDesc
 
 ***** Private
-
-> embed_dyn :: Typeable a =>
->   Attr k a -> (t -> Dynamic) -> AttrDesc k t
-> embed_dyn a p = AttrDesc $ do
->   tell [Attribute a]
->   return $ Map.singleton (Attribute a) . p
-
-> runInhDesc = runAttrDesc
 
 > proj_I :: InhDesc i -> i -> AttrMap I
 > proj_I = fst . runWriter . runInhDesc
@@ -1693,18 +1681,6 @@ them.
 >     ( invalid_terminals
 >      , missing_terminals) = symdiff term_attrs prod_terms
 
-`check_attr_unique' is private, but used by `check_inh_unique' and
-`prodDesc'.
-
-> check_attr_unique ::
->   ([Attribute k] -> ErrorMsg) -> AttrDesc k t -> Check ()
-> check_attr_unique err desc
->   | null xs' = return ()
->   | otherwise = throwErrorCheck $ err xs'
->   where
->     (proj, xs) = runWriter . runAttrDesc $ desc
->     xs' = duplicates xs
-
 **** NtDesc
 
 `NtDesc a' associates a non-terminal to the datatype `a'
@@ -1806,8 +1782,12 @@ Unique attributes
 
 > check_inh_unique ::
 >   InhDesc i -> Check ()
-> check_inh_unique =
->   check_attr_unique Error_InhDesc_Duplicate
+> check_inh_unique desc
+>   | null xs' = return ()
+>   | otherwise = throwErrorCheck $ Error_InhDesc_Duplicate xs'
+>   where
+>     (proj, xs) = runWriter . runInhDesc $ desc
+>     xs' = duplicates xs
 
 All the required inherited attributes have been specified for
 the root.
