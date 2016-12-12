@@ -16,8 +16,9 @@
 > import qualified Data.Set as Set
 > import qualified Data.Map as Map
 > import Control.Applicative
-> import AG
 > import GHC.Stack
+> import AG
+> import GramDesc
 
 * Type proxies (used in attribute definitions)
 
@@ -83,20 +84,19 @@ The same grammar is written as follows:
   them to a concrete type, this will allow
   us to run AG safely.
 
-> rootDesc = ntDesc root
->    [ prodDesc start
->        [ childDesc startTree startTreeProj ]
->        []
+> rootDesc =
+>   root |=
+>    [ start |=
+>        [ startTree |= startTreeProj ] & []
 >    ]
->   `insert_nt`
->    (gramDesc $
->      ntDesc btree
->      [ prodDesc fork
->          [ childDesc leftTree leftTreeProj
->          , childDesc rightTree rightTreeProj]
->          []
->      , prodDesc leaf [] [termDesc val leafProj]
->      ])
+>  |||
+>   btree |=
+>    [ fork |=
+>        [ leftTree |= leftTreeProj
+>        , rightTree |= rightTreeProj]
+>        & []
+>    , leaf |= [] & [termDesc val leafProj]
+>    ]
 >  where
 >    leftTreeProj (Fork l r) = Just l
 >    leftTreeProj _ = Nothing

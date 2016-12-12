@@ -184,7 +184,7 @@ can implement a very flexible namespace system.
 > , emptyAspect, mergeAspect, concatAspects
 > , delete_I, delete_S
 > , inhs, syns, (|-)
-> , def_S, def_I, (|=)
+> , def_S, def_I, AttrDef(AttrDef)
 
 **** Generic rules
 
@@ -1373,9 +1373,6 @@ Nicer pairs for association lists [(a,b)]
 > syns a = foldl (\rs (p,r) -> rs # syn a p r) emptyAspect
 
 *** One production, multiple attributes
-
-> infixr 2 |=
-> x |= y = AttrDef x y
 
 > data AttrDef k where
 >   AttrDef :: Typeable a => Attr k a -> AR a -> AttrDef k
