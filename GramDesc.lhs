@@ -12,6 +12,8 @@ A nicer syntax for writing the grammar description of a datatype.
 
 > infixr 2 |=
 
+Overloaded operator for associations.
+
 > class Assoc t a b | a b -> t where
 >   (|=) :: a -> b -> t
 
@@ -31,7 +33,6 @@ A nicer syntax for writing the grammar description of a datatype.
 >   Assoc (NtDesc a) NonTerminal [ProdDesc a] where
 >   (|=) = ntDesc
 
-
 > instance (Typeable a) =>
 >   Assoc (AttrDef k) (Attr k a) (AR a) where
 >   (|=) = AttrDef
@@ -45,7 +46,9 @@ is chosen (for ProdDesc).
 > (&) = (,)
 
  
-Grammar Alternatives
+Grammar Alternatives. The operator `|||' is overloaded so
+that the last NtDesc is automatically coerced to GramDesc in
+a list of alternatives: x ||| y ||| z
 
 > infixr 0 |||
 
@@ -64,5 +67,5 @@ mode: org
 eval: (org-indent-mode -1)
 eval: (mmm-ify-by-class 'literate-haskell-bird)
 eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
-compile-command: "ghc Assoc"
+compile-command: "ghc GramDesc"
 End:

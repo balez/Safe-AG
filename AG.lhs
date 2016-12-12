@@ -1377,6 +1377,8 @@ Nicer pairs for association lists [(a,b)]
 > data AttrDef k where
 >   AttrDef :: Typeable a => Attr k a -> AR a -> AttrDef k
 
+The module GramDesc defines (|=) as a synonym to `AttrDef'.
+
 > def_S :: Production -> [AttrDef S] -> Aspect
 > def_S p = foldl (\rs (AttrDef a r) -> rs # syn a p r) emptyAspect
 
