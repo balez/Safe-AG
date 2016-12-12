@@ -95,7 +95,7 @@ The same grammar is written as follows:
 >        [ leftTree |= leftTreeProj
 >        , rightTree |= rightTreeProj]
 >        & []
->    , leaf |= [] & [termDesc val leafProj]
+>    , leaf |= [] & [val |= leafProj]
 >    ]
 >  where
 >    leftTreeProj (Fork l r) = Just l
