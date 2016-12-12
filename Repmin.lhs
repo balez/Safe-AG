@@ -7,6 +7,7 @@
 >     , DeriveDataTypeable
 >     , GeneralizedNewtypeDeriving
 >     , ScopedTypeVariables
+>     , LambdaCase
 >  #-}
 
 ** Module Imports
@@ -80,31 +81,25 @@ The same grammar is written as follows:
 
 ** Using GramDesc
 
-  In addition to define independent grammars, we associate
-  them to a concrete type, this will allow
-  us to run AG safely.
+In addition to define independent grammars, we associate
+them to a concrete type, this will allow
+us to run AG safely.
 
 > rootDesc =
 >   root |=
 >    [ start |=
->        [ startTree |= startTreeProj ] & []
+>        [ startTree |= \(Start x) -> Just x
+>        ] & []
 >    ]
 >  |||
 >   btree |=
 >    [ fork |=
->        [ leftTree |= leftTreeProj
->        , rightTree |= rightTreeProj]
+>        [ leftTree  |= \case {Fork x _ -> Just x; _ -> Nothing}
+>        , rightTree |= \case {Fork _ x -> Just x; _ -> Nothing}
+>        ]
 >        & []
->    , leaf |= [] & [val |= leafProj]
+>    , leaf |= [] & [val |= \case {Leaf x -> Just x; _ -> Nothing}]
 >    ]
->  where
->    leftTreeProj (Fork l r) = Just l
->    leftTreeProj _ = Nothing
->    rightTreeProj (Fork l r) = Just r
->    rightTreeProj _ = Nothing
->    leafProj (Leaf x) = Just x
->    leafProj _ = Nothing
->    startTreeProj (Start t) = Just t
 
 > repminI = emptyInhDesc
 > repminS = project ntree
