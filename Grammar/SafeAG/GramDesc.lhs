@@ -33,10 +33,6 @@ Overloaded operator for associations.
 >   Assoc (NtDesc a) NonTerminal [ProdDesc a] where
 >   (|=) = ntDesc
 
-> instance (Typeable a) =>
->   Assoc (AttrDef k) (Attr k a) (AR a) where
->   (|=) = AttrDef
-
 Pairs of ChildDesc and TermDesc.  This definition is useful
 to guide the typechecker so that the good instance of Assoc
 is chosen (for ProdDesc).
@@ -45,7 +41,6 @@ is chosen (for ProdDesc).
 > (&) :: [ChildDesc a] -> [TermDesc a] -> ([ChildDesc a], [TermDesc a])
 > (&) = (,)
 
- 
 Grammar Alternatives. The operator `|||' is overloaded so
 that the last NtDesc is automatically coerced to GramDesc in
 a list of alternatives: x ||| y ||| z
@@ -67,5 +62,5 @@ mode: org
 eval: (org-indent-mode -1)
 eval: (mmm-ify-by-class 'literate-haskell-bird)
 eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
-compile-command: "ghc GramDesc"
+compile-command: "cd ../..; ghc Grammar/SafeAG/GramDesc.lhs"
 End:

@@ -19,7 +19,7 @@ pList :: Proxy a -> Proxy [a]
 pList _ = Proxy
 pStrf = Proxy :: Proxy Strf
 
--- strings
+-- string functions for fast concatenation
 
 type Strf = String -> String
 str :: String -> Strf
@@ -81,30 +81,30 @@ is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
         zero _ _ _ = False
 
 emptyA = def_S empty
-  [ body        |= pure []
-  , last_line   |= pure nil
-  , height      |= pure 0
-  , last_width  |= pure 0
-  , total_width |= pure 0]
+  [ body        := pure []
+  , last_line   := pure nil
+  , height      := pure 0
+  , last_width  := pure 0
+  , total_width := pure 0]
 
 textA = def_S text
-  [ body |= pure []
-  , last_line |= str <$> ter string
-  , height     |= pure 1
-  , last_width |= len
-  , total_width |= len]
+  [ body := pure []
+  , last_line := str <$> ter string
+  , height     := pure 1
+  , last_width := len
+  , total_width := len]
   where
     len = length <$> ter string
 
 indentA = def_S indent
   [ body        --> (\tabs body -> append tabs `map` body) <$> tabs <*> indented!body
   , last_line   --> append <$> tabs <*> indented!last_line
-  , height      |= indented!height
+  , height      := indented!height
   , last_width  --> (+) <$> ter margin <*> indented!last_width
   , total_width --> (+) <$> ter margin <*> indented!total_width
   ] where
     infix 0 -->
-    x --> y = x |= ifteA (is_empty indented) (indented!x) y
+    x --> y = x := ifteA (is_empty indented) (indented!x) y
     tabs = spaces <$> ter margin
 
 besideA = def_S beside
@@ -116,7 +116,7 @@ besideA = def_S beside
   , total_width --> max <$> left!total_width <*> ((+) <$> left!last_width <*> right!total_width)
   ] where
     infix 0 -->
-    x --> y = x |= ifteA (is_empty left) (right ! x)
+    x --> y = x := ifteA (is_empty left) (right ! x)
                      (ifteA (is_empty right) (left ! x) y)
     if_empty_right_body = ifteA (null <$> right!body)
 
@@ -136,7 +136,7 @@ aboveA = def_S above
   , total_width --> max <$> upper!total_width <*> lower!total_width
   ] where
     infix 0 -->
-    x --> y = x |= ifteA (is_empty upper) (lower ! x)
+    x --> y = x := ifteA (is_empty upper) (lower ! x)
                      (ifteA (is_empty lower) (upper ! x) y)
 
 allA = emptyA # textA # indentA # besideA # aboveA

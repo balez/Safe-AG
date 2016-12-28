@@ -184,7 +184,7 @@ can implement a very flexible namespace system.
 > , emptyAspect, mergeAspect, concatAspects
 > , delete_I, delete_S
 > , inhs, syns, (|-)
-> , def_S, def_I, AttrDef(AttrDef)
+> , def_S, def_I, AttrDef((:=))
 
 **** Generic rules
 
@@ -1364,7 +1364,7 @@ Synthesized attributes are defined for the parent of a production.
 Nicer pairs for association lists [(a,b)]
 
 > infixr 2 |-
-> x |- y = (x,y)
+> (|-) = (,)
 
 > inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Aspect
 > inhs a = foldl (\rs (c,r) -> rs # inh a c r) emptyAspect
@@ -1374,16 +1374,16 @@ Nicer pairs for association lists [(a,b)]
 
 *** One production, multiple attributes
 
-> data AttrDef k where
->   AttrDef :: Typeable a => Attr k a -> AR a -> AttrDef k
+> infix 2 :=
 
-The module GramDesc defines (|=) as a synonym to `AttrDef'.
+> data AttrDef k where
+>   (:=) :: Typeable a => Attr k a -> AR a -> AttrDef k
 
 > def_S :: Production -> [AttrDef S] -> Aspect
-> def_S p = foldl (\rs (AttrDef a r) -> rs # syn a p r) emptyAspect
+> def_S p = foldl (\rs (a := r) -> rs # syn a p r) emptyAspect
 
 > def_I :: Child -> [AttrDef I] -> Aspect
-> def_I c = foldl (\rs (AttrDef a r) -> rs # inh a c r) emptyAspect
+> def_I c = foldl (\rs (a := r) -> rs # inh a c r) emptyAspect
 
 * Generic rules
 
@@ -2172,5 +2172,5 @@ eval: (org-indent-mode -1)
 eval: (mmm-mode)
 eval: (mmm-ify-by-class 'literate-haskell-bird)
 eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
-compile-command: "cd ..; ghc Grammar/SafeAG"
+compile-command: "cd ../..; ghc Grammar/SafeAG/Core.lhs"
 End:
