@@ -124,7 +124,7 @@ can implement a very flexible namespace system.
   SEE any `Dynamic', always concrete types.
 - the user should never SEE Attribute, only `Attr k a'
 
-> module AG
+> module Grammar.SafeAG.Core
 
 *** Monoids
 
@@ -200,7 +200,7 @@ We keep the context and errors abstract, we can only `show' them.
 > , Context, Missing -- Show
 > , Error, prettyError -- Show
 
-**** Specification
+**** Concrete Types
 ***** Synthesized attributes
 
 > , SynDesc, project
@@ -252,7 +252,7 @@ We keep the context and errors abstract, we can only `show' them.
 > import Data.Traversable
 > import Data.Foldable (foldMap, all, traverse_)
 > import GHC.Stack hiding (prettyCallStack) -- callstacks
-> import Unknown
+> import Grammar.SafeAG.Unknown
 
 * General definitions
 ** Function composition
@@ -505,7 +505,7 @@ private
 > prod_spec nt (p :| p') =
 >   prod_spec nt p :| prod_spec nt p'
 
-production can be used to extend a non-terminal
+`productions' can be used to extend a non-terminal
 
 > productions ::
 >   NTSpec NonTerminal Name ChildTermSpec ->
@@ -2169,7 +2169,8 @@ sections, `^\*\*\* ' for level-3, and so on. The syntax
 Local Variables:
 mode: org
 eval: (org-indent-mode -1)
+eval: (mmm-mode)
 eval: (mmm-ify-by-class 'literate-haskell-bird)
 eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
-compile-command: "ghc AG"
+compile-command: "cd ..; ghc Grammar/SafeAG"
 End:

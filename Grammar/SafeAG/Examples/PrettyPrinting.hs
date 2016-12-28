@@ -1,5 +1,5 @@
-module PrettyPrinting where
-import AG
+module Grammar.SafeAG.Examples.PrettyPrinting where
+import Grammar.SafeAG
 import Data.Proxy
 import Control.Applicative hiding (empty)
 import Data.Dynamic
@@ -190,6 +190,6 @@ type Algebra = Production :-> SemProd
 
 {-
 Local Variables:
-compile-command: "ghc PrettyPrinting"
+compile-command: "cd ../../..; ghc Grammar.SafeAG.Examples.PrettyPrinting"
 End:
 -}

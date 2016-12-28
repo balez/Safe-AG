@@ -12,14 +12,13 @@
 
 ** Module Imports
 
-> module Main where
+> module Grammar.SafeAG.Examples.Repmin where
 > import Data.Dynamic (Typeable, Proxy(..))
 > import qualified Data.Set as Set
 > import qualified Data.Map as Map
 > import Control.Applicative
 > import GHC.Stack
-> import AG
-> import GramDesc
+> import Grammar.SafeAG
 
 * Type proxies (used in attribute definitions)
 
@@ -258,5 +257,5 @@ mode: org
 eval: (org-indent-mode -1)
 eval: (mmm-ify-by-class 'literate-haskell-bird)
 eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
-compile-command: "ghc Repmin"
+compile-command: "cd ../../..; ghc Grammar/SafeAG/Examples/Repmin.lhs"
 End:

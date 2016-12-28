@@ -6,8 +6,8 @@ A nicer syntax for writing the grammar description of a datatype.
 >     , FlexibleInstances
 >  #-}
 
-> module GramDesc where
-> import AG
+> module Grammar.SafeAG.GramDesc where
+> import Grammar.SafeAG.Core
 > import Data.Dynamic (Typeable)
 
 > infixr 2 |=

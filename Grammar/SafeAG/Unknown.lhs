@@ -4,7 +4,7 @@ The type Unknown is used for debugging.
 >    Rank2Types
 > #-}
 
-> module Unknown where
+> module Grammar.SafeAG.Unknown where
 
 `ExpectedTypeOf` and `inferredTypeOf` are used in the
 interactive session to obtain type information from the
