@@ -88,7 +88,7 @@ body = attr "body" S (pList pStrf)
 last_line = attr "last_line" S pStrf
 
 is_empty :: Child -> AR Bool
-is_empty c = ⟪ (all (== 0)) ⟪ [c!height, c!total_width, c!last_width] ⟫⟫
+is_empty c = ⟪ all ⟪(== 0)⟫ ⟪ [c!height, c!total_width, c!last_width] ⟫⟫
 
 emptyA = def_S empty
   [ body        := ⟪ []  ⟫
@@ -108,7 +108,7 @@ textA = def_S text
     len = ⟪ length (ter string) ⟫
 
 indentA = def_S indent
-  [ body        --> ⟪ (append <$> tabs) `map` (indented!body) ⟫
+  [ body        --> ⟪ ⟪append tabs⟫ `map` (indented!body) ⟫
   , last_line   --> ⟪ tabs `append` (indented!last_line) ⟫
   , height      :=  indented!height
   , last_width  --> ⟪ ter margin + (indented!last_width) ⟫
@@ -139,13 +139,18 @@ besideA = def_S beside
       attr --> ⟪ (left!attr) `op` (right!attr) ⟫
 
     tabs = ⟪ spaces (left!last_width) ⟫
-
     beside_body = ⟪
       let ts = tabs
           lb = left!body
           ll = left!last_line
           rb : rbs = right!body
       in lb ++ (append ll rb) : (append ts `map` rbs) ⟫
+    -- beside_body = ⟪ left!body ++
+    --                 ⟪ ⟪ (left!last_line) `append` ⟪ head (right!body) ⟫⟫
+    --                   : ⟪⟪ append tabs ⟫ `map` ⟪ tail (right!body) ⟫⟫
+    --                 ⟫
+    --               ⟫
+
 
 aboveA = def_S above
   [ body        --> ⟪ upper!body ++ ⟪upper!last_line : lower!body⟫ ⟫
