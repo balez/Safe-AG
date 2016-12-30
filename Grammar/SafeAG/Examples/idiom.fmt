@@ -1,0 +1,20 @@
+% idiom brackets
+%if style == newcode
+%format ⟪ = "$(idiom[|"
+%format ⟫ = "|])"
+%else
+%format ⟪ = "\lAngle"
+%format ⟫ = "\rAngle"
+%endif
+
+%format ⟪⟪ = ⟪ ⟪
+%format ⟪⟪⟪ = ⟪ ⟪ ⟪
+%format ⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪
+%format ⟪⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪ ⟪
+%format ⟪⟪⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪ ⟪ ⟪
+
+%format ⟫⟫ = ⟫ ⟫
+%format ⟫⟫⟫ = ⟫ ⟫ ⟫
+%format ⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫
+%format ⟫⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫ ⟫
+%format ⟫⟫⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫ ⟫ ⟫

@@ -1,15 +1,5 @@
 %include lhs2TeX.fmt
-
-%format ⟪ = "$(idiom[|"
-%format ⟫ = "|])"
-
-%format ⟪⟪ = ⟪ ⟪
-%format ⟪⟪⟪ = ⟪ ⟪ ⟪
-%format ⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪
-
-%format ⟫⟫ = ⟫ ⟫
-%format ⟫⟫⟫ = ⟫ ⟫ ⟫
-%format ⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫
+%include idiom.fmt
 
 \begin{code}
 {-# LANGUAGE  QuasiQuotes, TemplateHaskell #-}
