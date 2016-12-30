@@ -1,9 +1,26 @@
+%include lhs2TeX.fmt
+
+%format ⟪ = "$(idiom[|"
+%format ⟫ = "|])"
+
+%format ⟪⟪ = ⟪ ⟪
+%format ⟪⟪⟪ = ⟪ ⟪ ⟪
+%format ⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪
+
+%format ⟫⟫ = ⟫ ⟫
+%format ⟫⟫⟫ = ⟫ ⟫ ⟫
+%format ⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫
+
+\begin{code}
+{-# LANGUAGE  QuasiQuotes, TemplateHaskell #-}
+
 module Grammar.SafeAG.Examples.PrettyPrinting where
 import Grammar.SafeAG
 import Data.Proxy
 import Control.Applicative hiding (empty)
 import Data.Dynamic
 import GHC.Stack
+import Grammar.SafeAG.Examples.Idiom
 
 liftA4 f a b c d = liftA3 f a b c <*> d
 ifte p t e = if p then t else e
@@ -57,14 +74,20 @@ margin = attr "margin" T pInt
 -- combinators
 e   = node empty mempty mempty
 t s = node text  mempty (string |=> s)
-i m d = node indent (indented |-> d) (margin |=> m)
+ind m d = node indent (indented |-> d) (margin |=> m)
 l >|< r = node beside (left |-> l \/ right |-> r) mempty
 u >-< l = node above (upper |-> u \/ lower |-> l) mempty
 a >||< b = a >|< t " " >|< b
 
--- example
+{-| example
+>>> test example1
+when a writer
+needs some inspiration there is nothing better
+                       |     than
+                       |          drinking
+-}
 example1 = (t "when a writer" >-< t "needs some inspiration ")
-  >|< (t "there is nothing better" >-< (t "|" >|< i 5 (t "than") >-< (t "|" >|< i 10 (t "drinking"))))
+  >|< (t "there is nothing better" >-< (t "|" >|< ind 5 (t "than") >-< (t "|" >|< ind 10 (t "drinking"))))
 
 -- attributes
 
@@ -74,70 +97,84 @@ total_width = attr "total_width" S pInt
 body = attr "body" S (pList pStrf)
 last_line = attr "last_line" S pStrf
 
-
 is_empty :: Child -> AR Bool
-is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
-  where zero 0 0 0 = True
-        zero _ _ _ = False
+is_empty c = ⟪ (all (== 0)) ⟪ [c!height, c!total_width, c!last_width] ⟫⟫
 
 emptyA = def_S empty
-  [ body        := pure []
-  , last_line   := pure nil
-  , height      := pure 0
-  , last_width  := pure 0
-  , total_width := pure 0]
+  [ body        := ⟪ []  ⟫
+  , last_line   := ⟪ nil ⟫
+  , height      := ⟪ 0   ⟫
+  , last_width  := ⟪ 0   ⟫
+  , total_width := ⟪ 0   ⟫
+  ]
 
 textA = def_S text
-  [ body := pure []
-  , last_line := str <$> ter string
-  , height     := pure 1
-  , last_width := len
+  [ body        := ⟪ [] ⟫
+  , last_line   := ⟪ str (ter string) ⟫
+  , height      := ⟪ 1 ⟫
+  , last_width  := len
   , total_width := len]
   where
-    len = length <$> ter string
+    len = ⟪ length (ter string) ⟫
 
 indentA = def_S indent
-  [ body        --> (\tabs body -> append tabs `map` body) <$> tabs <*> indented!body
-  , last_line   --> append <$> tabs <*> indented!last_line
-  , height      := indented!height
-  , last_width  --> (+) <$> ter margin <*> indented!last_width
-  , total_width --> (+) <$> ter margin <*> indented!total_width
+  [ body        --> ⟪ (append <$> tabs) `map` (indented!body) ⟫
+  , last_line   --> ⟪ tabs `append` (indented!last_line) ⟫
+  , height      :=  indented!height
+  , last_width  --> ⟪ ter margin + (indented!last_width) ⟫
+  , total_width --> ⟪ ter margin + (indented!total_width) ⟫
   ] where
     infix 0 -->
-    x --> y = x := ifteA (is_empty indented) (indented!x) y
-    tabs = spaces <$> ter margin
+    x --> y = x := ⟪ if is_empty indented then indented!x else y ⟫
+    tabs = ⟪ spaces (ter margin) ⟫
 
 besideA = def_S beside
-  [ body -->  if_empty_right_body (left!body) beside_body
-  , last_line --> append <$> if_empty_right_body (left!last_line) tabs
-                         <*> right!last_line
-  , height --> (\x y -> x + y - 1) <$> left!height <*> right!height
-  , last_width --> (+) <$> left!last_width <*> right!last_width
-  , total_width --> max <$> left!total_width <*> ((+) <$> left!last_width <*> right!total_width)
+  [ body        --> ⟪ if ⟪ null (right!body) ⟫ then left!body else beside_body ⟫
+  , last_line   --> let before = ⟪ if ⟪ null (right!body) ⟫ then left!last_line else tabs ⟫
+                    in ⟪ before `append` (right!last_line) ⟫
+  , height      ==> (\l r -> l + r - 1)
+  , last_width  ==> (+)
+  , total_width --> ⟪ (left!total_width) `max` ⟪left!last_width + right!total_width⟫ ⟫
   ] where
-    infix 0 -->
-    x --> y = x := ifteA (is_empty left) (right ! x)
-                     (ifteA (is_empty right) (left ! x) y)
-    if_empty_right_body = ifteA (null <$> right!body)
+    infix 0 -->, ==>
+    x --> y =
+      x := ⟪ if is_empty left
+             then right!x
+             else ⟪ if is_empty right
+                    then left!x
+                    else y ⟫
+           ⟫
 
-    tabs = spaces <$> left!last_width
-    -- beside_body = (++) <$> left!body
-    --                    <*> ( (:) <$> (append <$> left!last_line <*> (head <$> right!body))
-    --                              <*> (map <$> (append <$> tabs) <*> (tail <$> right!body)))
-    beside_body = liftA4 f tabs (left!body) (left!last_line) (right!body)
-      where f sp lb ll (rb : rbs) =
-              lb ++ (append ll rb) : (append sp `map` rbs)
+    attr ==> op =
+      attr --> ⟪ (left!attr) `op` (right!attr) ⟫
+
+    tabs = ⟪ spaces (left!last_width) ⟫
+
+    beside_body = ⟪
+      let ts = tabs
+          lb = left!body
+          ll = left!last_line
+          rb : rbs = right!body
+      in lb ++ (append ll rb) : (append ts `map` rbs) ⟫
 
 aboveA = def_S above
-  [ body --> (++) <$> upper!body <*> ((:) <$> upper!last_line <*> lower!body)
-  , last_line --> lower!last_line
-  , height --> (+) <$> upper!height <*> lower!height
-  , last_width --> lower!last_width
-  , total_width --> max <$> upper!total_width <*> lower!total_width
+  [ body        --> ⟪ upper!body ++ ⟪upper!last_line : lower!body⟫ ⟫
+  , last_line   ==> lowerP
+  , height      ==> (+)
+  , last_width  ==> lowerP
+  , total_width ==> max
   ] where
     infix 0 -->
-    x --> y = x := ifteA (is_empty upper) (lower ! x)
-                     (ifteA (is_empty lower) (upper ! x) y)
+    x --> y =
+      x := ⟪ if is_empty upper
+             then lower!x
+             else ⟪ if is_empty lower
+                    then upper!x
+                    else y ⟫
+           ⟫
+    attr ==> op =
+      attr --> ⟪ (upper!attr) `op` (lower!attr) ⟫
+    lowerP u l = l
 
 allA = emptyA # textA # indentA # besideA # aboveA
 
@@ -160,9 +197,9 @@ a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
 pp_ites condD thenD elseD
   =   ifc >||< thent >||< elsee  >||< fi
   >^< ifc >||<  t "then"
-      >-< i 2 thenD
+      >-< ind 2 thenD
       >-< t "else"
-      >-< i 2 elseD
+      >-< ind 2 elseD
       >-< fi
   >^< ifc >-< thent >-< elsee  >-< fi
   >^< ifc >||< (thent >-< elsee) >-< fi
@@ -190,6 +227,7 @@ type Algebra = Production :-> SemProd
 
 {-
 Local Variables:
-compile-command: "cd ../../..; ghc Grammar.SafeAG.Examples.PrettyPrinting"
+compile-command: "lhs2TeX --newcode PrettyPrinting.lhs > PrettyPrinting.hs && cd ../../..; ghc Grammar.SafeAG.Examples.PrettyPrinting"
 End:
 -}
+\end{code}
