@@ -1,7 +1,6 @@
 The attribute grammar for binary number is the example given
 in Knuth original paper "Semantics of Context Free Languages".
 
-
 * Header
 ** lhs2TeX
 
@@ -52,12 +51,12 @@ in Knuth original paper "Semantics of Context Free Languages".
 
 * Proxies
 
-> pInt = Proxy :: Proxy Int
+> pInt    = Proxy :: Proxy Int
 > pDouble = Proxy :: Proxy Double
 
 * Attributes
 
-> val  = attr "val"  S pDouble
+> val   = attr "val"   S pDouble
 > len   = attr "len"   S pInt
 > scale = attr "scale" I pInt
 
@@ -83,6 +82,7 @@ in Knuth original paper "Semantics of Context Free Languages".
 > allA = valA # lenA # scaleA
  
 * Testing
+** Building an input tree
 
 > i = node one mempty mempty
 > o = node zero mempty mempty
@@ -92,14 +92,15 @@ in Knuth original paper "Semantics of Context Free Languages".
 > as `dot` bs = node fraction (pos |-> bits as \/ neg |-> bits bs) mempty
 > int ds = node integer (digits |-> bits ds) mempty
 
+** example input
 > ex1 = [i, i, o, i] `dot` [o, i]
 
-> test x = case runTree allA number x mempty of
+** running
+> run_val x = case runTree allA number x mempty of
 >  Left err -> putStr $ prettyError err
 >  Right s -> print (s ! val)
 >  where m ! x = fromJust $ lookup_attrs x m
 >        fromJust (Just x) = x
-
 
 * Local variables for emacs
 
