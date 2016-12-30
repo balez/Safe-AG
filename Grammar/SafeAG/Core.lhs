@@ -60,6 +60,7 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
+- syns/inhs with support for generic rules
 - Add callstack to the reader monad for aspects (cf discussion [[callstacks]])
 - Make the algebra public (Production :-> SemProd) so that
   we can use the AG dsl to define algebras. (cf prettyprinting example)
@@ -188,8 +189,9 @@ can implement a very flexible namespace system.
 
 **** Generic rules
 
+> , many1, many2
 > , copy, copyN, copyP, copyPs, copyG
-> , collect, collectAll, collectP
+> , collect, collectAll, collectAlls, collectP, collectPs
 > , chain, chainN, chainP
 
 *** Running the AG
@@ -1390,6 +1392,13 @@ Nicer pairs for association lists [(a,b)]
 Note that all those rules are in only using the public
 primitives and could be defined by the user.
 
+** Merging Generic rules
+
+Sometimes we want to apply a rule on the same attribute many times.
+
+> many1 f x   = concatAspects . map (f x)
+> many2 f x y = concatAspects . map (f x y)
+
 ** Copy
 `copy' copies the attribute the parent to the child.
 
@@ -1400,7 +1409,7 @@ primitives and could be defined by the user.
 to be copied.
 
 > copyN :: Typeable a => Attr I a -> Children -> Aspect
-> copyN a cs = concatAspects . map (copy a) $ cs
+> copyN = many1 copy
 
 `copyP' copies the inherited attribute of the parent to all
 the children that have the same non-terminal.
@@ -1436,6 +1445,9 @@ constraints.
 > collectAll :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectAll a reduce p = syn a p $
 >   (reduce . filterJust) <$> traverse (?a) (prod_children p)
+ 
+> collectAlls :: Typeable a => Attr S a -> ([a] -> a) -> [Production] -> Aspect
+> collectAlls = many2 collectAll
 
 `collectP' applies the function to the attributes of all the
 children that have the same non-terminal as the parent.
@@ -1444,6 +1456,9 @@ By hypothesis, we know that the attribute will be defined for them.
 > collectP :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectP a reduce p = syn a p $ reduce <$> traverse (!a) cs
 >  where cs = [ c | c <- prod_children p, child_nt c == prod_nt p ]
+
+> collectPs :: Typeable a => Attr S a -> ([a] -> a) -> [Production] -> Aspect
+> collectPs = many2 collectP
 
 ** Chain
 
