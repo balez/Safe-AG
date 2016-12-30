@@ -1,4 +1,9 @@
 * Header
+** lhs2TeX
+
+%include lhs2TeX.fmt
+%include idiom.fmt
+
 ** GHC Extensions
 
 > {-# LANGUAGE
@@ -8,6 +13,7 @@
 >     , GeneralizedNewtypeDeriving
 >     , ScopedTypeVariables
 >     , LambdaCase
+>     , TemplateHaskell
 >  #-}
 
 ** Module Imports
@@ -19,6 +25,7 @@
 > import Control.Applicative
 > import GHC.Stack
 > import Grammar.SafeAG
+> import Grammar.SafeAG.Examples.Idiom (idiom)
 
 * Type proxies (used in attribute definitions)
 
@@ -122,23 +129,25 @@ must be given last.
 
 > repminA = gminA # locminA # ntreeA
 
-> gminA = inh gmin startTree (startTree!locmin)
->         # copyP gmin fork
+> gminA = inhs gmin
+>   [ startTree |- startTree!locmin ]
+>   # copyP gmin fork
 
 > locminA = syns locmin
->           [ leaf |- ter val
->           , start |- startTree!locmin]
+>   [ leaf  |- ter val
+>   , start |- startTree!locmin
+>   ]
 >   # collectAll locmin minimum fork
 
 > ntreeA = syns ntree
->   [ leaf |- liftA Leaf (par gmin)
->   , fork |- liftA2 Fork (leftTree!ntree) (rightTree!ntree)
+>   [ leaf  |- ⟪ Leaf (par gmin) ⟫
+>   , fork  |- ⟪ Fork (leftTree!ntree) (rightTree!ntree) ⟫
 >   , start |- startTree!ntree
 >   ]
 
- Try
- > missing rootG (context ntreeA)
- > missing rootG (context repminA)
+Try
+ >>> missing rootG (context ntreeA)
+ >>> missing rootG (context repminA)
 
 *** Running
 
@@ -161,17 +170,16 @@ must be given last.
 > flattenA = flatA # tailA
 
 > flatA = syns flat
->     [ start |- startTree!flat
->     , leaf  |- (:) <$> ter val <*> par tailf
->     , fork  |- leftTree!flat
->     ]
+>   [ start |- startTree!flat
+>   , leaf  |- ⟪ ter val : par tailf ⟫
+>   , fork  |- leftTree!flat
+>   ]
 
-> tailA =
->   inhs tailf
->     [ rightTree |- par tailf
->     , leftTree  |- rightTree!flat
->     , startTree |- pure []
->     ]
+> tailA = inhs tailf
+>   [ rightTree |- par tailf
+>   , leftTree  |- rightTree!flat
+>   , startTree |- ⟪ [] ⟫
+>   ]
 
 *** Testing
     Try
@@ -202,9 +210,9 @@ Trying the error system
 
 > height = attr "height" S pInt
 > heightA = syns height
->   [ start |- startTree!height
->   , leaf |- pure 1]
->   # collectP height (\hs -> 1 + maximum hs) fork
+>   [ start |- startTree!height ]
+>   # collectPs height (\hs -> 1 + max0 hs) [fork, leaf]
+>  where max0 = foldl max 0
 
 > runheight x = case run rootDesc mempty (project height) heightA of
 >   Left err -> print err
@@ -257,5 +265,5 @@ mode: org
 eval: (org-indent-mode -1)
 eval: (mmm-ify-by-class 'literate-haskell-bird)
 eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
-compile-command: "cd ../../..; ghc Grammar/SafeAG/Examples/Repmin.lhs"
+compile-command: "lhs2TeX --newcode Repmin.lhs > Repmin.hs && cd ../../..; ghc Grammar/SafeAG/Examples/Repmin.hs"
 End:
