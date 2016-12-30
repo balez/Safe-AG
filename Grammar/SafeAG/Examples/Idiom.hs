@@ -42,7 +42,9 @@ r = return
 --------------------------------------------------
 bracket :: Exp -> ExpQ
 
-bracket (AppE f x) = liftB f [x]
+bracket (AppE f x) = do
+  f' <- bracket f
+  return $ infixVar '(<*>) f' x
 
 bracket (InfixE (Just left) op (Just right)) =
   liftB op [left, right]
