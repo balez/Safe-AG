@@ -1,2 +1,6 @@
 *.o
 *.hi
+*.dyn_hi
+*.dyn_o
+Grammar/SafeAG/Examples/PrettyPrinting.hs
+Grammar/SafeAG/Examples/Binary.hs
