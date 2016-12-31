@@ -28,13 +28,22 @@ s_⟫_|])_g
 -}
 
 --module Control.Applicative.TH.Idiom (idiom, i) where
-module Grammar.SafeAG.Examples.Idiom (idiom, i, returnA) where
+module Grammar.SafeAG.Examples.Idiom (idiom, i) where
+import Control.Monad (ap)
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax
 
 -- to be used with applicative do
-returnA = id
+newtype Return a = Return {fromReturn :: a}
+instance Monad Return where
+  return = Return
+  Return x >>= f = f x
+instance Applicative Return where
+  pure = return
+  (<*>) = ap
+instance Functor Return where
+  fmap f m = m >>= return . f
 
 ifThenElse c t e = if c then t else e
 r = return
@@ -71,9 +80,9 @@ bracket e@(ListE es) =
   [| sequenceA $(r e) |]
 
 bracket (DoE stmts) =
-  bindings "do {p1 <- e1; ...; pn <- en; e}" stmts
+  bindings "do {p1 <- e1; ...; pn <- en; return e}" 'fromReturn stmts
 bracket (CompE stmts) =
-  bindings "[ e | p1 <- e1, .. pn <- en]" stmts
+  bindings "[ e | p1 <- e1, .. pn <- en]" 'id stmts
 
 bracket (LetE ds e) =
   return (lets ds e)
@@ -97,10 +106,11 @@ liftQ f es = return $ liftE f es
    --> ⟪ (\p1 ... pn -> e) e1 .. en ⟫
 -}
 
-bindings form stmts = liftQ lam exps
+bindings form res stmts = liftQ lam exps
   where
     (pats, exps) = unzip $ fromBindS form <$> init stmts
-    lam = LamE pats (fromNoBindS form $ last stmts)
+    body = AppE (VarE res) (fromNoBindS form $ last stmts)
+    lam = LamE pats body
 
 error_bindings form =
   error $ "idiom: expected an expression of the form '" ++ form ++ "'"
@@ -203,7 +213,7 @@ Do expressions: only the following form is accepted.  each
 @e1@...@en@ must be applicative and may not refer to previous
 bindings.  @e@ must be pure.
 
->>> ⟪ do {p1 <- e1; ...; pn <- en; e} ⟫
+>>> ⟪ do {p1 <- e1; ...; pn <- en; return e} ⟫
 == ⟪ [e | p1 <- e1; ...; pn <- en] ⟫
 
 Tuples.
