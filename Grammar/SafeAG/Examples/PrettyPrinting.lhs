@@ -20,22 +20,23 @@ ifteA = liftA3 ifte
 spaces n = str $ replicate n ' '
 
 pString = Proxy :: Proxy String
-pInt = Proxy :: Proxy Int
-pBool = Proxy :: Proxy Bool
+pInt    = Proxy :: Proxy Int
+pBool   = Proxy :: Proxy Bool
+pStrf   = Proxy :: Proxy Strf
 pList :: Proxy a -> Proxy [a]
 pList _ = Proxy
-pStrf = Proxy :: Proxy Strf
 
 -- string functions for fast concatenation
 
 type Strf = String -> String
-str :: String -> Strf
-str = (++)
-nil :: Strf
-nil = id
-append :: Strf -> Strf -> Strf
-append = (.)
+str      :: String -> Strf
+nil      :: Strf
+append   :: Strf -> Strf -> Strf
 from_str :: Strf -> String
+
+str      = (++)
+nil      = id
+append   = (.)
 from_str = ($ "")
 
 -- terminal attributes
