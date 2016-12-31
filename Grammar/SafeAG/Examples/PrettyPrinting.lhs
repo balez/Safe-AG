@@ -154,13 +154,22 @@ besideA = def_S beside
     --       ⟫
     --  ⟫
 
-    beside_body =
-      ⟪[ lb ++ (ll `append` rb) : (append ts `map` rbs)
-       | lb       <- left!body
-       , ll       <- left!last_line
-       , rb : rbs <- right!body
-       , ts       <- tabs
-       ]⟫
+    -- beside_body =
+    --   ⟪[ lb ++ (ll `append` rb) : (append ts `map` rbs)
+    --    | lb       <- left!body
+    --    , ll       <- left!last_line
+    --    , rb : rbs <- right!body
+    --    , ts       <- tabs
+    --    ]⟫
+
+    beside_body = ⟪
+      do lb       <- left!body
+         ll       <- left!last_line
+         rb : rbs <- right!body
+         ts       <- tabs
+         return $
+           lb ++ (ll `append` rb) : (append ts `map` rbs)
+      ⟫
 
 aboveA = def_S above
   [ body        --> ⟪ upper!body ++ ⟪upper!last_line : lower!body⟫ ⟫
