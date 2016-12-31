@@ -89,13 +89,18 @@ in Knuth original paper "Semantics of Context Free Languages".
 > snocC xs x = node snoc (snoc_list |-> xs \/ snoc_bit |-> x) mempty
 > singleC x = node single (single_bit |-> x) mempty
 > bits (b:bs) = foldl snocC (singleC b) bs
+> bits [] = singleC o
 > as `dot` bs = node fraction (pos |-> bits as \/ neg |-> bits bs) mempty
 > int ds = node integer (digits |-> bits ds) mempty
 
+
 ** example input
-> ex1 = [i, i, o, i] `dot` [o, i]
+
+> ex1 = [i,i,o,i] `dot` [o,i] -- 13.25
+> ex2 = [i,o,o,o,o,o,i,i,i,o] `dot` [i,o,i] -- 526.625
 
 ** running
+
 > run_val x = case runTree allA number x mempty of
 >  Left err -> putStr $ prettyError err
 >  Right s -> print (s ! val)
