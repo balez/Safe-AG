@@ -10,7 +10,7 @@ import Data.Proxy
 import Control.Applicative hiding (empty)
 import Data.Dynamic
 import GHC.Stack
-import Grammar.SafeAG.Examples.Idiom
+import Grammar.SafeAG.TH.Idiom
 
 liftA4 f a b c d = liftA3 f a b c <*> d
 ifte p t e = if p then t else e

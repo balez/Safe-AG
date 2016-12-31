@@ -26,7 +26,7 @@ in Knuth original paper "Semantics of Context Free Languages".
 > import Data.Ratio
 > import Control.Applicative
 > import Grammar.SafeAG
-> import Grammar.SafeAG.Examples.Idiom (idiom)
+> import Grammar.SafeAG.TH.Idiom (idiom)
 
 * Grammar
 

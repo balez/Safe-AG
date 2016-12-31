@@ -27,8 +27,7 @@ s_⟫_|])_g
 @
 -}
 
---module Control.Applicative.TH.Idiom (idiom, i) where
-module Grammar.SafeAG.Examples.Idiom (idiom, i) where
+module Grammar.SafeAG.TH.Idiom (idiom, i) where
 import Control.Monad (ap)
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Quote

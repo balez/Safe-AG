@@ -25,7 +25,7 @@
 > import Control.Applicative
 > import GHC.Stack
 > import Grammar.SafeAG
-> import Grammar.SafeAG.Examples.Idiom (idiom)
+> import Grammar.SafeAG.TH.Idiom (idiom)
 
 * Type proxies (used in attribute definitions)
 
