@@ -139,18 +139,28 @@ besideA = def_S beside
       attr --> ⟪ (left!attr) `op` (right!attr) ⟫
 
     tabs = ⟪ spaces (left!last_width) ⟫
-    beside_body = ⟪
-      let ts = tabs
-          lb = left!body
-          ll = left!last_line
-          rb : rbs = right!body
-      in lb ++ (append ll rb) : (append ts `map` rbs) ⟫
-    -- beside_body = ⟪ left!body ++
-    --                 ⟪ ⟪ (left!last_line) `append` ⟪ head (right!body) ⟫⟫
-    --                   : ⟪⟪ append tabs ⟫ `map` ⟪ tail (right!body) ⟫⟫
-    --                 ⟫
-    --               ⟫
 
+    -- beside_body =
+    --   ⟪ left!body ++ ⟪   ⟪ (left!last_line) `append` ⟪head (right!body)⟫ ⟫
+    --                    : ⟪ ⟪append tabs⟫    `map`    ⟪tail (right!body)⟫ ⟫
+    --                  ⟫
+    --   ⟫
+
+    -- beside_body =
+    --  ⟪ let rb : rbs = right!body
+    --    in ⟪ left!body ++ ⟪   ⟪ (left!last_line) `append` rb  ⟫
+    --                        : ⟪ ⟪append tabs⟫    `map`    rbs ⟫
+    --                      ⟫
+    --       ⟫
+    --  ⟫
+
+    beside_body =
+      ⟪[ lb ++ (ll `append` rb) : (append ts `map` rbs)
+       | lb       <- left!body
+       , ll       <- left!last_line
+       , rb : rbs <- right!body
+       , ts       <- tabs
+       ]⟫
 
 aboveA = def_S above
   [ body        --> ⟪ upper!body ++ ⟪upper!last_line : lower!body⟫ ⟫
