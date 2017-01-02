@@ -8,6 +8,9 @@
   %format ⟦ = "$(applicative[|"
   %format ⟧ = "|])"
 
+  %format ⟪ = "(_($(idiom[|"
+  %format ⟫ = "|])))"
+
 %else
 
   %format ⟨ = "\langle"
@@ -16,7 +19,25 @@
   %format ⟦ = "\lBrack"
   %format ⟧ = "\rBrack"
 
+  %format ⟪ = "\lAngle"
+  %format ⟫ = "\rAngle"
+
 %endif
 
 %format ⟦⟨ = ⟦ ⟨
 %format ⟩⟧ = ⟩ ⟧
+
+%format ⟦⟪ = ⟦ ⟪
+%format ⟫⟧ = ⟫ ⟧
+
+%format ⟪⟪ = ⟪ ⟪
+%format ⟪⟪⟪ = ⟪ ⟪ ⟪
+%format ⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪
+%format ⟪⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪ ⟪
+%format ⟪⟪⟪⟪⟪⟪ = ⟪ ⟪ ⟪ ⟪ ⟪ ⟪
+
+%format ⟫⟫ = ⟫ ⟫
+%format ⟫⟫⟫ = ⟫ ⟫ ⟫
+%format ⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫
+%format ⟫⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫ ⟫
+%format ⟫⟫⟫⟫⟫⟫ = ⟫ ⟫ ⟫ ⟫ ⟫ ⟫

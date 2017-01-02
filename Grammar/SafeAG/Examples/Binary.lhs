@@ -5,7 +5,7 @@ in Knuth original paper "Semantics of Context Free Languages".
 ** lhs2TeX
 
 %include lhs2TeX.fmt
-%include idiom.fmt
+%include applicative.fmt
 
 ** GHC Extensions
 
@@ -26,7 +26,7 @@ in Knuth original paper "Semantics of Context Free Languages".
 > import Data.Ratio
 > import Control.Applicative
 > import Grammar.SafeAG
-> import Grammar.SafeAG.TH.Idiom (idiom)
+> import Grammar.SafeAG.TH.Applicative
 
 * Grammar
 
@@ -63,20 +63,20 @@ in Knuth original paper "Semantics of Context Free Languages".
 * Semantic rules
 
 > lenA = syns len
->  [ single |- ⟪ 1 ⟫
->  , snoc   |- ⟪ snoc_list!len + ⟪1⟫ ⟫
+>  [ single |- ⟦ 1 ⟧
+>  , snoc   |- ⟦ ⟨snoc_list!len⟩ + 1 ⟧
 >  ]
 
 > valA = syns val
->  [ zero |- ⟪ 0.0 ⟫
->  , one  |- ⟪ ⟪2.0⟫ ** ⟪fromIntegral (par scale)⟫ ⟫
+>  [ zero |- ⟦ 0.0 ⟧
+>  , one  |- ⟦ 2.0 ** fromIntegral ⟨par scale⟩ ⟧
 >  ] # collectAlls val sum [integer, fraction, single, snoc]
 
 > scaleA = inhs scale
->  [ digits    |- ⟪ 0 ⟫
->  , pos       |- ⟪ 0 ⟫
->  , neg       |- ⟪ negate (neg!len) ⟫
->  , snoc_list |- ⟪ par scale + ⟪1⟫ ⟫
+>  [ digits    |- ⟦ 0 ⟧
+>  , pos       |- ⟦ 0 ⟧
+>  , neg       |- ⟦ negate ⟨neg!len⟩ ⟧
+>  , snoc_list |- ⟦ ⟨par scale⟩ + 1 ⟧
 >  ] # copyN scale [single_bit, snoc_bit]
 
 > allA = valA # lenA # scaleA

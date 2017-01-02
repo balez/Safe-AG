@@ -2,7 +2,7 @@
 ** lhs2TeX
 
 %include lhs2TeX.fmt
-%include idiom.fmt
+%include applicative.fmt
 
 ** GHC Extensions
 
@@ -26,6 +26,7 @@
 > import GHC.Stack
 > import Grammar.SafeAG
 > import Grammar.SafeAG.TH.Idiom (idiom)
+> import Grammar.SafeAG.TH.Applicative
 
 * Type proxies (used in attribute definitions)
 
@@ -140,8 +141,8 @@ must be given last.
 >   # collectAll locmin minimum fork
 
 > ntreeA = syns ntree
->   [ leaf  |- ⟪ Leaf (par gmin) ⟫
->   , fork  |- ⟪ Fork (leftTree!ntree) (rightTree!ntree) ⟫
+>   [ leaf  |- ⟦ Leaf ⟨par gmin⟩ ⟧
+>   , fork  |- ⟦ Fork ⟨leftTree!ntree⟩ ⟨rightTree!ntree⟩ ⟧
 >   , start |- startTree!ntree
 >   ]
 
@@ -171,14 +172,14 @@ Try
 
 > flatA = syns flat
 >   [ start |- startTree!flat
->   , leaf  |- ⟪ ter val : par tailf ⟫
+>   , leaf  |- ⟦⟪ ter val : par tailf ⟫⟧
 >   , fork  |- leftTree!flat
 >   ]
 
 > tailA = inhs tailf
 >   [ rightTree |- par tailf
 >   , leftTree  |- rightTree!flat
->   , startTree |- ⟪ [] ⟫
+>   , startTree |- ⟦ [] ⟧
 >   ]
 
 *** Testing
