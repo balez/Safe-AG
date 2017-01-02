@@ -28,6 +28,7 @@ s_⟫_|])_g
 -}
 
 module Grammar.SafeAG.TH.Idiom (idiom, i) where
+import Control.Monad (ap)
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax
@@ -90,6 +91,8 @@ bracket (CaseE e ms) =
 
 bracket e = liftQ e []
 
+liftQ f es = return $ liftE f es
+
 -- | liftE f [e1..en] == pure f <*> e1 <*> ... <*> en
 
 liftE f es = applies (AppE (VarE 'pure) f : es)
@@ -97,8 +100,6 @@ liftE f es = applies (AppE (VarE 'pure) f : es)
 
 infixVar op l r = InfixE (Just l) (VarE op) (Just r)
 infixCon op l r = InfixE (Just l) (ConE op) (Just r)
-
-liftQ f es = return $ liftE f es
 
 {- ⟪ do {p1 <- e1; ...; pn <- en; e} ⟫
    --> ⟪ (\p1 ... pn -> e) e1 .. en ⟫
