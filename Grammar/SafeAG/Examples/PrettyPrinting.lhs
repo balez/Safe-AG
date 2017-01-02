@@ -1,5 +1,6 @@
 %include lhs2TeX.fmt
 %include idiom.fmt
+%include applicative.fmt
 
 \begin{code}
 {-# LANGUAGE  QuasiQuotes, TemplateHaskell #-}
@@ -11,6 +12,7 @@ import Control.Applicative hiding (empty)
 import Data.Dynamic
 import GHC.Stack
 import Grammar.SafeAG.TH.Idiom
+import Grammar.SafeAG.TH.Applicative
 
 liftA4 f a b c d = liftA3 f a b c <*> d
 ifte p t e = if p then t else e
@@ -120,21 +122,37 @@ indentA = def_S indent
     tabs = ⟪ spaces (ter margin) ⟫
 
 besideA = def_S beside
-  [ body        --> ⟪ if ⟪ null (right!body) ⟫ then left!body else beside_body ⟫
-  , last_line   --> let before = ⟪ if ⟪ null (right!body) ⟫ then left!last_line else tabs ⟫
-                    in ⟪ before `append` (right!last_line) ⟫
+  [ body        --> ⟦
+      case ⟨right!body⟩ of
+        [] -> ⟨left!body⟩
+        rb : rbs -> ⟨left!body⟩ ++ (⟨left!last_line⟩ `append` rb)
+                    : (append ⟨tabs⟩ `map` rbs)
+      ⟧
+  , last_line   --> -- let before = ⟪ if ⟪ null (right!body) ⟫ then left!last_line else tabs ⟫
+                    -- in ⟪ before `append` (right!last_line) ⟫
+
+                    ⟦ let before = if null ⟨right!body⟩ then ⟨left!last_line⟩ else ⟨tabs⟩
+                      in before `append` ⟨right!last_line⟩ ⟧
+
   , height      ==> (\l r -> l + r - 1)
   , last_width  ==> (+)
   , total_width --> ⟪ (left!total_width) `max` ⟪left!last_width + right!total_width⟫ ⟫
   ] where
     infix 0 -->, ==>
     x --> y =
-      x := ⟪ if is_empty left
-             then right!x
-             else ⟪ if is_empty right
-                    then left!x
-                    else y ⟫
-           ⟫
+      x := ⟦ if ⟨is_empty left⟩
+             then ⟨right!x⟩
+             else if ⟨is_empty right⟩
+                  then ⟨left!x⟩
+                  else ⟨y⟩
+           ⟧
+
+      -- x := ⟪ if is_empty left
+      --        then right!x
+      --        else ⟪ if is_empty right
+      --               then left!x
+      --               else y ⟫
+      --      ⟫
 
     attr ==> op =
       attr --> ⟪ (left!attr) `op` (right!attr) ⟫
@@ -147,13 +165,25 @@ besideA = def_S beside
     --                  ⟫
     --   ⟫
 
-    -- beside_body =
-    --  ⟪ let rb : rbs = right!body
-    --    in ⟪ left!body ++ ⟪   ⟪ (left!last_line) `append` rb  ⟫
-    --                        : ⟪ ⟪append tabs⟫    `map`    rbs ⟫
-    --                      ⟫
-    --       ⟫
-    --  ⟫
+    beside_body =
+     ⟪ let rb : rbs = right!body
+       in ⟪ left!body ++ ⟪   ⟪ (left!last_line) `append` rb  ⟫
+                           : ⟪ ⟪append tabs⟫    `map`    rbs ⟫
+                         ⟫
+          ⟫
+     ⟫
+
+    -- beside_body = ⟦
+    --   let rb : rbs = ⟨right!body⟩
+    --   in ⟨left!body⟩ ++ (⟨left!last_line⟩ `append` rb)
+    --                    : (append ⟨tabs⟩ `map` rbs)
+    --   ⟧
+
+    -- beside_body = ⟦
+    --   let rb : rbs = $(right!body)
+    --   in $(left!body) ++ (append $(left!last_line) rb)
+    --                    : (map $(append tabs) rbs)
+    -- ⟧
 
     -- beside_body =
     --   ⟪[ lb ++ (ll `append` rb) : (append ts `map` rbs)
@@ -163,14 +193,14 @@ besideA = def_S beside
     --    , ts       <- tabs
     --    ]⟫
 
-    beside_body = ⟪
-      do lb       <- left!body
-         ll       <- left!last_line
-         rb : rbs <- right!body
-         ts       <- tabs
-         return $
-           lb ++ (ll `append` rb) : (append ts `map` rbs)
-      ⟫
+    -- beside_body = ⟪
+    --   do lb       <- left!body
+    --      ll       <- left!last_line
+    --      rb : rbs <- right!body
+    --      ts       <- tabs
+    --      return $
+    --        lb ++ (ll `append` rb) : (append ts `map` rbs)
+    --   ⟫
 
 aboveA = def_S above
   [ body        --> ⟪ upper!body ++ ⟪upper!last_line : lower!body⟫ ⟫
