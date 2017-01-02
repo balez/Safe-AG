@@ -28,7 +28,6 @@ s_⟫_|])_g
 -}
 
 module Grammar.SafeAG.TH.Idiom (idiom, i) where
-import Control.Monad (ap)
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax
