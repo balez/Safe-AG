@@ -1,10 +1,15 @@
 % idiom brackets
+
 %if style == newcode
-%format ⟪ = "$(idiom[|"
-%format ⟫ = "|])"
+
+  %format ⟪ = "$(idiom[|"
+  %format ⟫ = "|])"
+
 %else
-%format ⟪ = "\lAngle"
-%format ⟫ = "\rAngle"
+
+  %format ⟪ = "\lAngle"
+  %format ⟫ = "\rAngle"
+
 %endif
 
 %format ⟪⟪ = ⟪ ⟪
