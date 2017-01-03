@@ -37,10 +37,18 @@ rewrite it as an application, so that:
 where @⟨e1⟩..⟨en⟩@ occur in the order pre-order traversal of
 the expression @e@.
 
+All valid Haskell expressions can be used inside the
+applicative brackets, except for the following restriction:
+if the result of an effectful expression (enclosed in ⟨..⟩)
+is bound to a variable (by a let, case, lambda, lambdaCase,
+or where) then that variable cannot be used inside another
+effectful expression (enclosed in ⟨..⟩).
+
+TODO: check the previous condition to display a nice error message.
 -}
 
 module Grammar.SafeAG.TH.Applicative (applicative) where
-import Language.Haskell.TH.Lib
+import Language.Haskell.TH.Lib hiding (match)
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax
 
@@ -99,20 +107,6 @@ pull (InfixE (Just l) o (Just r)) = pull3 inf o l r
 pull (UInfixE l o r) = pull3 uinf o l r
   where uinf o l r = UInfixE l o r
 
-pull (CondE c e t) = pull3 CondE c e t
-
-pull (TupE es) = pulls TupE es
-pull (ListE es) = pulls ListE es
-
-pull (CaseE e m) =
-  pull_with2 pull (pull_trav pull_match) CaseE e m
-
-{- Lambda abstraction. It is an error if some of the
-effectful values in the body depend on some other effectful
-values. This can only be checked when the function is
-applied, since we allow effectful and pure arguments.
--}
-
 pull (LamE ps e) = pull1 (LamE ps) e
 
 {- Let expression. It is an error if some of the
@@ -120,54 +114,89 @@ pull (LamE ps e) = pull1 (LamE ps) e
    effectful values.
 -}
 
-pull (LetE d e) =
-  pull_with2 (pull_trav pull_dec) pull LetE d e
+pull (LetE d e)       =  with2 (trav dec) pull LetE d e
+pull (CaseE e m)      =  with2 pull (trav match) CaseE e m
+pull (LamCaseE ms)    =  wtrav match LamCaseE ms
+pull (CondE c e t)    =  pull3 CondE c e t
+pull (TupE es)        =  pulls TupE es
+pull (UnboxedTupE es) =  pulls UnboxedTupE es
+pull (ListE es)       =  pulls ListE es
+pull (ParensE e)      =  pull1 ParensE e
+pull (MultiIfE cs)    =  wtrav guardexp MultiIfE cs
+pull (DoE ss)         =  wtrav stmt DoE ss
+pull (CompE ss)       =  wtrav stmt CompE ss
+pull (ArithSeqE r)    =  with range ArithSeqE r
+pull (SigE e t)       =  pull1 (\e -> SigE e t) e
+pull (RecConE n fs)   =  wtrav field (RecConE n) fs
+pull (RecUpdE e fs)   =  with2 pull (trav field) RecUpdE e fs
+pull (StaticE e)      =  pull1 StaticE e
 
 -- Any other expression is left unchanged
+-- VarE, ConE, LitE, UboundVarE
 
 pull e = return (e, nil)
 
 --------------------------------------------------
-pull_with p c x = do
+with p c x = do
   (x', xs) <- p x
   return (c x', xs)
 
-pull_with2 p1 p2 c x y = do
+with2 p1 p2 c x y = do
   (x', xs) <- p1 x
   (y', ys) <- p2 y
   return (c x' y', xs ++. ys)
 
-pull_with3 p1 p2 p3 c x y z = do
+with3 p1 p2 p3 c x y z = do
   (x', xs) <- p1 x
   (y', ys) <- p2 y
   (z', zs) <- p3 z
   return (c x' y' z', xs ++. ys ++. zs)
 
-pull1 = pull_with pull
-pull2 = pull_with2 pull pull
-pull3 = pull_with3 pull pull pull
-pulls = pull_with (pull_trav pull)
+wtrav = with . trav
 
-pull_trav :: (a -> Q (Pull b)) -> [a] -> Q (Pull [b])
-pull_trav p x = pull_seq <$> traverse p x
+pull1 = with pull
+pull2 = with2 pull pull
+pull3 = with3 pull pull pull
+pulls = wtrav pull
+
+trav :: (a -> Q (Pull b)) -> [a] -> Q (Pull [b])
+trav p x = pull_seq <$> traverse p x
 
 pull_seq :: [Pull a] -> Pull [a]
 pull_seq = foldr cons ([], nil)
   where cons (x, xs) (s, ss) = (x:s, xs ++. ss)
 
 --------------------------------------------------
-pull_dec :: Dec -> PullQ Dec
-pull_dec (ValD p (NormalB e) []) = pull1 (dec p) e
+
+dec :: Dec -> PullQ Dec
+dec (ValD p (NormalB e) []) = pull1 (dec p) e
   where dec p e = ValD p (NormalB e) []
+dec _ = err "only simple let bindings are accepted."
 
-pull_dec _ = err "only simple let bindings are accepted."
-
---------------------------------------------------
-pull_match :: Match -> PullQ Match
-pull_match (Match p (NormalB e) []) = pull1 (match p) e
+match :: Match -> PullQ Match
+match (Match p (NormalB e) []) = pull1 (match p) e
   where match p e = Match p (NormalB e) []
+match _ = err "only simple case expressions are accepted."
 
-pull_match _ = err "only simple case expressions are accepted."
+stmt :: Stmt -> PullQ Stmt
+stmt = \case
+  BindS p e -> pull1 (BindS p) e
+  LetS ds -> wtrav dec LetS ds
+  NoBindS e -> pull1 NoBindS e
+  ParS sss -> wtrav (wtrav stmt id) ParS sss
+
+range :: Range -> PullQ Range
+range = \case
+  FromR e           -> pull1 FromR e
+  FromThenR x y     -> pull2 FromThenR x y
+  FromToR x y       -> pull2 FromToR x y
+  FromThenToR x y z -> pull3 FromThenToR x y z
+
+pair :: (a,Exp) -> PullQ (a,Exp)
+pair (x, e) = pull1 (\e -> (x,e)) e
+
+guardexp = pair
+field = pair
 
 {-
 Local Variables:
