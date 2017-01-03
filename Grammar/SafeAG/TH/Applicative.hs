@@ -48,7 +48,7 @@ TODO: check the previous condition to display a nice error message.
 -}
 
 module Grammar.SafeAG.TH.Applicative (applicative) where
-import Language.Haskell.TH.Lib hiding (match)
+import Language.Haskell.TH.Lib hiding (match, clause)
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax
 
@@ -91,6 +91,9 @@ with variables of names @n1@..@nk@. The @e1..en@ where
 all the ⟨⟩-subexpresions in @x@, and @y@
 doesn't contain any more of those expression.
 -}
+
+-- Pull is a writer monad
+
 type Pull a = (a, ListF (Name, Exp))
 type PullQ a = Q (Pull a)
 
@@ -116,15 +119,15 @@ pull (LamE ps e) = pull1 (LamE ps) e
 
 pull (LetE d e)       =  with2 (trav dec) pull LetE d e
 pull (CaseE e m)      =  with2 pull (trav match) CaseE e m
-pull (LamCaseE ms)    =  wtrav match LamCaseE ms
+pull (LamCaseE ms)    =  wmatches LamCaseE ms
 pull (CondE c e t)    =  pull3 CondE c e t
 pull (TupE es)        =  pulls TupE es
 pull (UnboxedTupE es) =  pulls UnboxedTupE es
 pull (ListE es)       =  pulls ListE es
 pull (ParensE e)      =  pull1 ParensE e
 pull (MultiIfE cs)    =  wtrav guardexp MultiIfE cs
-pull (DoE ss)         =  wtrav stmt DoE ss
-pull (CompE ss)       =  wtrav stmt CompE ss
+pull (DoE ss)         =  wstmts DoE ss
+pull (CompE ss)       =  wstmts CompE ss
 pull (ArithSeqE r)    =  with range ArithSeqE r
 pull (SigE e t)       =  pull1 (\e -> SigE e t) e
 pull (RecConE n fs)   =  wtrav field (RecConE n) fs
@@ -134,7 +137,7 @@ pull (StaticE e)      =  pull1 StaticE e
 -- Any other expression is left unchanged
 -- VarE, ConE, LitE, UboundVarE
 
-pull e = return (e, nil)
+pull e = return (e, nil) -- (== return e)  in the PullQ monad
 
 --------------------------------------------------
 with p c x = do
@@ -169,21 +172,30 @@ pull_seq = foldr cons ([], nil)
 --------------------------------------------------
 
 dec :: Dec -> PullQ Dec
-dec (ValD p (NormalB e) []) = pull1 (dec p) e
-  where dec p e = ValD p (NormalB e) []
-dec _ = err "only simple let bindings are accepted."
+dec = \case
+  FunD n cs   ->  wclauses (FunD n) cs
+  ValD p b ds -> with2 body decs (ValD p) b ds
+  d           -> return (d, nil)
+
+wdecs :: ([Dec] -> a) -> [Dec] -> PullQ a
+wdecs = wtrav dec
+decs = wdecs id
 
 match :: Match -> PullQ Match
-match (Match p (NormalB e) []) = pull1 (match p) e
-  where match p e = Match p (NormalB e) []
-match _ = err "only simple case expressions are accepted."
+match (Match p b ds) = with2 body decs (Match p) b ds
+
+wmatches :: ([Match] -> a) -> [Match] -> PullQ a
+wmatches = wtrav match
+matches = wmatches id
 
 stmt :: Stmt -> PullQ Stmt
 stmt = \case
   BindS p e -> pull1 (BindS p) e
-  LetS ds -> wtrav dec LetS ds
+  LetS ds -> wdecs LetS ds
   NoBindS e -> pull1 NoBindS e
-  ParS sss -> wtrav (wtrav stmt id) ParS sss
+  ParS sss -> wtrav stmts ParS sss
+wstmts = wtrav stmt
+stmts = wstmts id
 
 range :: Range -> PullQ Range
 range = \case
@@ -192,11 +204,20 @@ range = \case
   FromToR x y       -> pull2 FromToR x y
   FromThenToR x y z -> pull3 FromThenToR x y z
 
+body = \case
+  NormalB e -> pull1 NormalB e
+  GuardedB gs -> wtrav guardexp GuardedB gs
+
 pair :: (a,Exp) -> PullQ (a,Exp)
 pair (x, e) = pull1 (\e -> (x,e)) e
 
 guardexp = pair
 field = pair
+
+clause (Clause ps b ds) =
+  with2 body decs (Clause ps) b ds
+
+wclauses = wtrav clause
 
 {-
 Local Variables:
