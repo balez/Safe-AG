@@ -52,21 +52,25 @@ effectful expression (enclosed in ⟨..⟩).
 Another corollary is that if a local function is defined inside applicative brackets ⟦..⟧,
 then its parameters may not be used inside effectful brackets ⟨..⟩.
 
-TODO: check the previous condition to display a nice error message.
+TODO: use the original expression to display a nice error message.
 TODO: update the bound variables
+ - statements
+ - matches
+TODO: pattern guards
+
+
 -}
 
 module Grammar.SafeAG.TH.Applicative (applicative) where
 import Prelude hiding (exp)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.List (intersperse)
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.Except
-import Language.Haskell.TH.Lib hiding (match, clause)
-import Language.Haskell.TH.Quote
-import Language.Haskell.TH.Syntax hiding (lift)
+import Language.Haskell.TH hiding (match, clause)
 
 err s = error $ "applicative: " ++ s
 
@@ -125,7 +129,7 @@ runPullQ :: PullQ a -> Q (a, [Name], [Exp])
 runPullQ (PullQ f) = do
   (e', es) <- runWriterT (runExceptT (runReaderT f Set.empty))
   case e' of
-    Left msg -> error $ "Applicative notation: " ++ show msg
+    Left msg -> fail $ "Applicative notation: " ++ show msg
     Right e -> do
       let (xs, as) = unzip (toList es)
       return (e, xs, as)
@@ -139,9 +143,11 @@ check e = do
   let bad = Set.intersection vs (free e)
   unless (Set.null bad)
     $ throwError $ Error $
-      "illegal variables: " ++ show bad
-      ++ "\nin effectful expression: " ++ show e
+      "illegal variable(s): " ++ ppr_set bad
+      ++ "\nin effectful expression: ⟨" ++ pprint e ++ "⟩)"
       ++ "\nThe variables bound inside the applicative brackets must not occur inside an effectful expression.\n"
+
+ppr_set s = concat $ intersperse ", " $ pprint <$> Set.toList s
 
 -- Bind an effectful expression to a new name and return that name
 
@@ -151,6 +157,13 @@ bind e = do
   x <- liftQ $ newName "x"
   tell (list [(x,e)])
   return x
+
+upd_env :: Set Name -> PullQ a -> PullQ a
+upd_env ns p = local (\/ ns) p
+
+upd_env_p p = upd_env_pd p []
+upd_env_d d = upd_env_pd [] d
+upd_env_pd p d = upd_env (pat_bounds p \/ dec_bounds d)
 
 exp :: Exp -> PullQ Exp
 exp = \case
@@ -167,8 +180,8 @@ exp = \case
   UInfixE l o r ->
     uinf <$> exp o <*> exp l <*> exp r
     where uinf o l r = UInfixE l o r
-  LamE ps e       ->  LamE ps <$> exp e
-  LetE ds e       ->  LetE <$> decs ds <*> exp e
+  LamE ps e -> upd_env_p ps $ LamE ps <$> exp e
+  LetE ds e -> upd_env_d ds $ LetE <$> decs ds <*> exp e
   CaseE e ms      ->  CaseE <$> exp e <*> matches ms
   LamCaseE ms     ->  LamCaseE <$> matches ms
   CondE c e t     ->  CondE <$> exp c <*> exp e <*> exp t
@@ -192,12 +205,16 @@ exps = traverse exp
 dec :: Dec -> PullQ Dec
 dec = \case
   FunD n cs   -> FunD n <$> clauses cs
-  ValD p b ds -> ValD p <$> body b <*> decs ds
+  ValD p b ds -> ValD p <$> upd_env_pd [p] ds (body b) <*> decs ds
   d           -> return d
 decs = traverse dec
 
 match :: Match -> PullQ Match
-match (Match p b ds) = Match p <$> body b <*> decs ds
+match (Match p b ds) =
+  Match p
+  <$> upd_env_pd [p] ds (body b)
+  <*> decs ds
+
 matches = traverse match
 
 stmt :: Stmt -> PullQ Stmt
@@ -226,7 +243,9 @@ guardedexps = pairs
 fields = pairs
 
 clause (Clause ps b ds) =
-  Clause ps <$> body b <*> decs ds
+  Clause ps
+  <$> upd_env_pd ps ds (body b)
+  <*> decs ds
 
 clauses = traverse clause
 
