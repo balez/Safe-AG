@@ -64,7 +64,9 @@ TODO: pattern guards
 module Grammar.SafeAG.TH.Applicative (applicative) where
 import Prelude hiding (exp)
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import Data.Set (Set)
+import Data.Map (Map)
 import Data.List (intersperse)
 import Control.Monad
 import Control.Monad.Reader
@@ -73,6 +75,12 @@ import Control.Monad.Except
 import Language.Haskell.TH hiding (match, clause)
 
 err s = error $ "applicative: " ++ s
+
+-- now `restrictKeys` is exported by Map.
+restrictKeys :: Ord k => Map k a -> Set k -> Map k a
+restrictKeys m s =
+  Map.filterWithKey (\k _ -> k `Set.member` s) m
+
 
 --------------------------------------------------
 newtype ListF a = ListF ([a] -> [a])
@@ -119,15 +127,16 @@ newtype Error = Error String
 instance Show Error where
     show (Error s) = s
 
-type Pull a = (a, ListF (Name, Exp))
---type PullQ a = Q (Pull a)
+type Env = Map Name Binder -- bound variables together with the construct that binds them.
+type BVars = Set Name -- bound variables
+type FVars = Set Name -- free variables
 
-newtype PullQ a = PullQ {fromPullQ :: ReaderT (Set Name) (ExceptT Error (WriterT (ListF (Name, Exp)) Q)) a}
-  deriving (Functor, Applicative, Monad, MonadReader (Set Name), MonadError Error, MonadWriter (ListF (Name, Exp)))
+newtype PullQ a = PullQ {fromPullQ :: ReaderT Env (ExceptT Error (WriterT (ListF (Name, Exp)) Q)) a}
+  deriving (Functor, Applicative, Monad, MonadReader Env, MonadError Error, MonadWriter (ListF (Name, Exp)))
 
 runPullQ :: PullQ a -> Q (a, [Name], [Exp])
 runPullQ (PullQ f) = do
-  (e', es) <- runWriterT (runExceptT (runReaderT f Set.empty))
+  (e', es) <- runWriterT (runExceptT (runReaderT f Map.empty))
   case e' of
     Left msg -> fail $ "Applicative notation: " ++ show msg
     Right e -> do
@@ -139,13 +148,23 @@ liftQ q = PullQ . lift .lift . lift $ q
 
 check :: Exp -> PullQ ()
 check e = do
-  vs <- ask
+  m <- ask
+  let vs = Map.keysSet m
   let bad = Set.intersection vs (free e)
   unless (Set.null bad)
     $ throwError $ Error $
-      "illegal variable(s): " ++ ppr_set bad
-      ++ "\nin effectful expression: ⟨" ++ pprint e ++ "⟩)"
+      "illegal use of: " ++ ppr_set bad
+      ++ "\nin effectful expression: ⟨" ++ pprint e ++ "⟩\n"
+      ++ bound_msg (inverseMap (restrictKeys m bad))
       ++ "\nThe variables bound inside the applicative brackets must not occur inside an effectful expression.\n"
+
+bound_msg = Map.foldWithKey msg ""
+  where
+    msg b vs s = ppr_set vs ++ " bound in the " ++ show b ++ "\n" ++ s
+
+inverseMap :: (Ord k, Ord a) => Map k a -> Map a (Set k)
+inverseMap = Map.foldWithKey ins Map.empty
+  where ins k x = Map.insertWith (\/) x (single k)
 
 ppr_set s = concat $ intersperse ", " $ pprint <$> Set.toList s
 
@@ -158,16 +177,29 @@ bind e = do
   tell (list [(x,e)])
   return x
 
-upd_env :: Set Name -> PullQ a -> PullQ a
-upd_env ns p = local (\/ ns) p
+-- the surrounding structure that binds a variable
+data Binder =
+  ExpBd Exp | DecBd Dec | MatchBd Match | ClauseBd Name Clause
+  deriving (Eq, Ord)
+
+instance Show Binder where
+  show = \case
+     ExpBd e      -> "expression "  ++ pprint e
+     DecBd d      -> "declaration " ++ pprint d
+     MatchBd m    -> "match "       ++ pprint m
+     ClauseBd f c -> "clause "      ++ pprint f ++ " " ++ pprint c
+
+upd_env :: BVars -> Binder -> PullQ a -> PullQ a
+upd_env ns b p = local (Map.union new_env) p
+  where new_env = Set.foldr (\k -> Map.insert k b) Map.empty ns
 
 upd_env_p p = upd_env_pd p []
 upd_env_d d = upd_env_pd [] d
 upd_env_pd p d = upd_env (pat_bounds p \/ dec_bounds d)
 
 exp :: Exp -> PullQ Exp
-exp = \case
-  AppE (UnboundVarE _) e -> VarE <$> bind e
+exp e0 = case e0 of
+  AppE (UnboundVarE n) e | nameBase n == "_" -> VarE <$> bind e
   AppE f e -> AppE <$> exp f <*> exp e
   InfixE (Just l) o (Just r) -> inf <$> exp o <*> exp l <*> exp r
     where inf o l r = InfixE (Just l) o (Just r)
@@ -180,8 +212,8 @@ exp = \case
   UInfixE l o r ->
     uinf <$> exp o <*> exp l <*> exp r
     where uinf o l r = UInfixE l o r
-  LamE ps e -> upd_env_p ps $ LamE ps <$> exp e
-  LetE ds e -> upd_env_d ds $ LetE <$> decs ds <*> exp e
+  LamE ps e -> upd_env_p ps b0 $ LamE ps <$> exp e
+  LetE ds e -> upd_env_d ds b0 $ LetE <$> decs ds <*> exp e
   CaseE e ms      ->  CaseE <$> exp e <*> matches ms
   LamCaseE ms     ->  LamCaseE <$> matches ms
   CondE c e t     ->  CondE <$> exp c <*> exp e <*> exp t
@@ -199,20 +231,21 @@ exp = \case
   StaticE e       ->  StaticE <$> exp e
   -- Any other expression is left unchanged (VarE, ConE, LitE, UboundVarE)
   e  ->  return e
+ where b0 = ExpBd e0
 
 exps = traverse exp
 
 dec :: Dec -> PullQ Dec
-dec = \case
-  FunD n cs   -> FunD n <$> clauses cs
-  ValD p b ds -> ValD p <$> upd_env_pd [p] ds (body b) <*> decs ds
+dec d = case d of
+  FunD n cs   -> FunD n <$> clauses n cs
+  ValD p b ds -> ValD p <$> upd_env_pd [p] ds (DecBd d) (body b) <*> decs ds
   d           -> return d
 decs = traverse dec
 
 match :: Match -> PullQ Match
-match (Match p b ds) =
+match m@(Match p b ds) =
   Match p
-  <$> upd_env_pd [p] ds (body b)
+  <$> upd_env_pd [p] ds (MatchBd m) (body b)
   <*> decs ds
 
 matches = traverse match
@@ -242,23 +275,23 @@ pairs = traverse pair
 guardedexps = pairs
 fields = pairs
 
-clause (Clause ps b ds) =
+clause n c@(Clause ps b ds) =
   Clause ps
-  <$> upd_env_pd ps ds (body b)
+  <$> upd_env_pd ps ds (ClauseBd n c) (body b)
   <*> decs ds
 
-clauses = traverse clause
+clauses = traverse . clause
 
 --------------------------------------------------
 -- free and bound variables
 
 infixr 5 \/
-(\/), (\\) :: Ord a => Set a -> Set a -> Set a
+(\/),(\\) :: Ord a => Set a -> Set a -> Set a
 (\/) = Set.union
 (\\) = Set.difference
 single = Set.singleton
 
-free :: Exp -> Set Name
+free :: Exp -> FVars
 free = \case
   InfixE (Just l) o (Just r) -> frees [l,o,r]
   InfixE Nothing o (Just r)  -> frees [o,r]
