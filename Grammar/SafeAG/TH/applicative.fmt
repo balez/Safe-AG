@@ -1,0 +1,22 @@
+% idiom brackets
+
+%if style == newcode
+
+  %format ⟨ = "(_("
+  %format ⟩ = "))"
+
+  %format ⟦ = "$(applicative[|"
+  %format ⟧ = "|])"
+
+%else
+
+  %format ⟨ = "\langle"
+  %format ⟩ = "\rangle"
+
+  %format ⟦ = "\lBrack"
+  %format ⟧ = "\rBrack"
+
+%endif
+
+%format ⟦⟨ = ⟦ ⟨
+%format ⟩⟧ = ⟩ ⟧
