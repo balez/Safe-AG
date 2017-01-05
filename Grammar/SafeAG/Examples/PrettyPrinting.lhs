@@ -2,7 +2,7 @@
 %include applicative.fmt
 
 \begin{code}
-{-# LANGUAGE  QuasiQuotes, TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Grammar.SafeAG.Examples.PrettyPrinting where
 import Grammar.SafeAG
