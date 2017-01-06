@@ -1,224 +1,232 @@
+* Header
+** Lhs2TeX
 %include lhs2TeX.fmt
 %include applicative.fmt
+** GHC Extensions
 
-\begin{code}
-{-# LANGUAGE TemplateHaskell #-}
+> {-# LANGUAGE TemplateHaskell #-}
 
-module Grammar.SafeAG.Examples.PrettyPrinting where
-import Grammar.SafeAG
-import Data.Proxy
-import Control.Applicative hiding (empty)
-import Data.Dynamic
-import GHC.Stack
-import Grammar.SafeAG.TH.Idiom
-import Grammar.SafeAG.TH.Applicative
+** Module Exports
 
-liftA4 f a b c d = liftA3 f a b c <*> d
-ifte p t e = if p then t else e
+> module Grammar.SafeAG.Examples.PrettyPrinting where
 
-ifteA :: Applicative f => f Bool -> f a -> f a -> f a
-ifteA = liftA3 ifte
-spaces n = str $ replicate n ' '
+** Module Imports
 
-pString = Proxy :: Proxy String
-pInt    = Proxy :: Proxy Int
-pBool   = Proxy :: Proxy Bool
-pStrf   = Proxy :: Proxy Strf
-pList :: Proxy a -> Proxy [a]
-pList _ = Proxy
+> import Grammar.SafeAG
+> import Data.Proxy
+> import Control.Applicative hiding (empty)
+> import Data.Dynamic
+> import GHC.Stack
+> import Grammar.SafeAG.TH.Idiom
+> import Grammar.SafeAG.TH.Applicative
 
--- string functions for fast concatenation
+* Type proxies
 
-type Strf = String -> String
-str      :: String -> Strf
-nil      :: Strf
-append   :: Strf -> Strf -> Strf
-from_str :: Strf -> String
+> pString = Proxy :: Proxy String
+> pInt    = Proxy :: Proxy Int
+> pBool   = Proxy :: Proxy Bool
+> pStrf   = Proxy :: Proxy Strf
+> pList :: Proxy a -> Proxy [a]
+> pList _ = Proxy
 
-str      = (++)
-nil      = id
-append   = (.)
-from_str = ($ "")
+* String functions for fast concatenation
 
--- terminal attributes
+> type Strf = String -> String
+> str      :: String -> Strf
+> nil      :: Strf
+> (++.) :: Strf -> Strf -> Strf
+> from_str :: Strf -> String
 
-string = attr "string" T pString
-margin = attr "margin" T pInt
+> str      = (++)
+> nil      = id
+> (++.)    = (.)
+> from_str = ($ "")
+> spaces n = str $ replicate n ' '
 
--- grammar
+* Terminal attributes
 
-[ pp ::= empty :@ []
-     :| text :@ []
-     :| indent :@ [indented]
-     :| beside :@ [left, right]
-     :| above :@ [upper, lower]
- ]
- = grammar $
-   [ "PP" ::= "Empty" :@ [] :& x
-           :| "Text"  :@ [] :& string & x
-           :| "Indent" :@ ["indented" ::: pp] :& margin & x
-           :| "Beside" :@ ["left" ::: pp, "right" ::: pp] :& x
-           :| "Above" :@ ["upper" ::: pp, "lower" ::: pp] :& x ]
-  where x = nilT
-        (&) :: Typeable a => Attr T a -> Terminals -> Terminals
-        (&) = consT
+> string = attr "string" T pString
+> margin = attr "margin" T pInt
 
--- combinators
-e   = node empty mempty mempty
-t s = node text  mempty (string |=> s)
-ind m d = node indent (indented |-> d) (margin |=> m)
-l >|< r = node beside (left |-> l \/ right |-> r) mempty
-u >-< l = node above (upper |-> u \/ lower |-> l) mempty
-a >||< b = a >|< t " " >|< b
+* Grammar
 
-{-| example
->>> test example1
-when a writer
-needs some inspiration there is nothing better
-                       |     than
-                       |          drinking
--}
-example1 = (t "when a writer" >-< t "needs some inspiration ")
-  >|< (t "there is nothing better" >-< (t "|" >|< ind 5 (t "than") >-< (t "|" >|< ind 10 (t "drinking"))))
+> [ pp ::= empty :@ []
+>      :| text :@ []
+>      :| indent :@ [indented]
+>      :| beside :@ [left, right]
+>      :| above :@ [upper, lower]
+>  ]
+>  = grammar $
+>    [ "PP" ::= "Empty" :@ [] :& x
+>            :| "Text"  :@ [] :& string & x
+>            :| "Indent" :@ ["indented" ::: pp] :& margin & x
+>            :| "Beside" :@ ["left" ::: pp, "right" ::: pp] :& x
+>            :| "Above" :@ ["upper" ::: pp, "lower" ::: pp] :& x ]
+>   where x = nilT
+>         (&) :: Typeable a => Attr T a -> Terminals -> Terminals
+>         (&) = consT
 
--- attributes
+* Combinators (smart constructors)
 
-height = attr "height" S pInt
-last_width = attr "last_width" S pInt
-total_width = attr "total_width" S pInt
-body = attr "body" S (pList pStrf)
-last_line = attr "last_line" S pStrf
+> e   = node empty mempty mempty
+> t s = node text  mempty (string |=> s)
+> ind m d = node indent (indented |-> d) (margin |=> m)
+> l >|< r = node beside (left |-> l \/ right |-> r) mempty
+> u >-< l = node above (upper |-> u \/ lower |-> l) mempty
+> a >||< b = a >|< t " " >|< b
 
-is_empty :: Child -> AR Bool
-is_empty c = ⟦ all (== 0) ⟪[c!height, c!total_width, c!last_width]⟫ ⟧
+** Example
+ >>> test example1
+ when a writer
+ needs some inspiration there is nothing better
+                        |     than
+                        |          drinking
 
-emptyA = def_S empty
-  [ body        := ⟦ []  ⟧
-  , last_line   := ⟦ nil ⟧
-  , height      := ⟦ 0   ⟧
-  , last_width  := ⟦ 0   ⟧
-  , total_width := ⟦ 0   ⟧
-  ]
+> example1 = (t "when a writer" >-< t "needs some inspiration ")
+>   >|< (t "there is nothing better" >-< (t "|" >|< ind 5 (t "than") >-< (t "|" >|< ind 10 (t "drinking"))))
+>
 
-textA = def_S text
-  [ body        := ⟦ [] ⟧
-  , last_line   := ⟦ str ⟨ter string⟩ ⟧
-  , height      := ⟦ 1 ⟧
-  , last_width  := len
-  , total_width := len]
-  where
-    len = ⟦ length ⟨ter string⟩ ⟧
+* Attributes
 
-indentA = def_S indent
-  [ body        --> ⟦ append ⟨tabs⟩ `map` ⟨indented!body⟩ ⟧
-  , last_line   --> ⟦ ⟨tabs⟩ `append` ⟨indented!last_line⟩ ⟧
-  , height      :=  indented!height
-  , last_width  --> ⟦ ⟨ter margin⟩ + ⟨indented!last_width⟩ ⟧
-  , total_width --> ⟦ ⟨ter margin⟩ + ⟨indented!total_width⟩ ⟧
-  ] where
-    infix 0 -->
-    x --> y = x := ⟦ if ⟨is_empty indented⟩ then ⟨indented!x⟩ else ⟨y⟩ ⟧
-    tabs = ⟦ spaces ⟨ter margin⟩ ⟧
+> height = attr "height" S pInt
+> last_width = attr "last_width" S pInt
+> total_width = attr "total_width" S pInt
+> body = attr "body" S (pList pStrf)
+> last_line = attr "last_line" S pStrf
 
-besideA = def_S beside
-  [ body        --> ⟦
-      case ⟨right!body⟩ of
-        [] -> ⟨left!body⟩
-        rb : rbs -> ⟨left!body⟩ ++ (⟨left!last_line⟩ `append` rb)
-                    : (append ⟨tabs⟩ `map` rbs)
-      ⟧
-  , last_line   --> ⟦ let before = if null ⟨right!body⟩ then ⟨left!last_line⟩ else ⟨tabs⟩
-                      in before `append` ⟨right!last_line⟩ ⟧
+* Rules
 
-  , height      ==> (\l r -> l + r - 1)
-  , last_width  ==> (+)
-  , total_width --> ⟦ ⟨left!total_width⟩ `max` ⟨left!last_width⟩ + ⟨right!total_width⟩ ⟧
-  ] where
-    infix 0 -->, ==>
-    x --> y =
-      x := ⟦ if ⟨is_empty left⟩
-             then ⟨right!x⟩
-             else if ⟨is_empty right⟩
-                  then ⟨left!x⟩
-                  else ⟨y⟩
-           ⟧
+> is_empty :: Child -> AR Bool
+> is_empty c = ⟦ all (== 0) ⟪[c!height, c!total_width, c!last_width]⟫ ⟧
 
-    attr ==> op =
-      attr --> ⟦ ⟨left!attr⟩ `op` ⟨right!attr⟩ ⟧
+> emptyA = def_S empty
+>   [ body        := ⟦ []  ⟧
+>   , last_line   := ⟦ nil ⟧
+>   , height      := ⟦ 0   ⟧
+>   , last_width  := ⟦ 0   ⟧
+>   , total_width := ⟦ 0   ⟧
+>   ]
 
-    tabs = ⟦ spaces ⟨left!last_width⟩ ⟧
+> textA = def_S text
+>   [ body        := ⟦ [] ⟧
+>   , last_line   := ⟦ str ⟨ter string⟩ ⟧
+>   , height      := ⟦ 1 ⟧
+>   , last_width  := len
+>   , total_width := len]
+>   where
+>     len = ⟦ length ⟨ter string⟩ ⟧
 
-aboveA = def_S above
-  [ body        --> ⟦ ⟨upper!body⟩ ++ ⟨upper!last_line⟩ : ⟨lower!body⟩ ⟧
-  , last_line   ==> lowerP
-  , height      ==> (+)
-  , last_width  ==> lowerP
-  , total_width ==> max
-  ] where
-    infix 0 -->
-    x --> y =
-      x := ⟦ if ⟨is_empty upper⟩
-             then ⟨lower!x⟩
-             else if ⟨is_empty lower⟩
-                  then ⟨upper!x⟩
-                  else ⟨y⟩
-           ⟧
-    attr ==> op =
-      attr --> ⟦ ⟨upper!attr⟩ `op` ⟨lower!attr⟩ ⟧
-    lowerP u l = l
+> indentA = def_S indent
+>   [ body        --> ⟦ (⟨tabs⟩ ++.) `map` ⟨indented!body⟩ ⟧
+>   , last_line   --> ⟦ ⟨tabs⟩ ++. ⟨indented!last_line⟩ ⟧
+>   , height      :=  indented!height
+>   , last_width  --> ⟦ ⟨ter margin⟩ + ⟨indented!last_width⟩ ⟧
+>   , total_width --> ⟦ ⟨ter margin⟩ + ⟨indented!total_width⟩ ⟧
+>   ] where
+>     infix 0 -->
+>     x --> y = x := ⟦ if ⟨is_empty indented⟩ then ⟨indented!x⟩ else ⟨y⟩ ⟧
+>     tabs = ⟦ spaces ⟨ter margin⟩ ⟧
 
-allA = emptyA # textA # indentA # besideA # aboveA
+> besideA = def_S beside
+>   [ body        --> ⟦
+>       case ⟨right!body⟩ of
+>         [] -> ⟨left!body⟩
+>         rb : rbs -> ⟨left!body⟩ ++ (⟨left!last_line⟩ ++. rb)
+>                     : (⟨tabs⟩ ++.) `map` rbs
+>       ⟧
+>   , last_line   --> ⟦ let before = if null ⟨right!body⟩ then ⟨left!last_line⟩ else ⟨tabs⟩
+>                       in before ++. ⟨right!last_line⟩ ⟧
+>   , height      ==> (\l r -> l + r - 1)
+>   , last_width  ==> (+)
+>   , total_width --> ⟦ ⟨left!total_width⟩ `max` ⟨left!last_width⟩ + ⟨right!total_width⟩ ⟧
+>   ] where
+>     infix 0 -->, ==>
+>     x --> y =
+>       x := ⟦ if ⟨is_empty left⟩
+>              then ⟨right!x⟩
+>              else if ⟨is_empty right⟩
+>                   then ⟨left!x⟩
+>                   else ⟨y⟩
+>            ⟧
+>
+>     attr ==> op =
+>       attr --> ⟦ ⟨left!attr⟩ `op` ⟨right!attr⟩ ⟧
+>
+>     tabs = ⟦ spaces ⟨left!last_width⟩ ⟧
 
-test x = case runTree allA pp x mempty of
-  Left err -> putStr $ prettyError err
-  Right s -> do {putStr $ unlines (map from_str (s ! body)); putStrLn (from_str (s ! last_line))}
-  where m ! x = fromJust $ lookup_attrs x m
-        fromJust (Just x) = x
+> aboveA = def_S above
+>   [ body        --> ⟦ ⟨upper!body⟩ ++ ⟨upper!last_line⟩ : ⟨lower!body⟩ ⟧
+>   , last_line   ==> lowerP
+>   , height      ==> (+)
+>   , last_width  ==> lowerP
+>   , total_width ==> max
+>   ] where
+>     infix 0 -->
+>     x --> y =
+>       x := ⟦ if ⟨is_empty upper⟩
+>              then ⟨lower!x⟩
+>              else if ⟨is_empty lower⟩
+>                   then ⟨upper!x⟩
+>                   else ⟨y⟩
+>            ⟧
+>     attr ==> op =
+>       attr --> ⟦ ⟨upper!attr⟩ `op` ⟨lower!attr⟩ ⟧
+>     lowerP u l = l
 
--- introducing a choice operator and a page width attribute
+> allA = emptyA # textA # indentA # besideA # aboveA
 
-choice :@ [opt_a, opt_b] =
-  productions $
-    pp ::= "Choice" :@ ["opt_a" ::: pp, "opt_b" ::: pp] :& nilT
+> test x = case runTree allA pp x mempty of
+>   Left err -> putStr $ prettyError err
+>   Right s -> do {putStr $ unlines (map from_str (s ! body)); putStrLn (from_str (s ! last_line))}
+>   where m ! x = fromJust $ lookup_attrs x m
+>         fromJust (Just x) = x
+>
 
-a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
+* Extensions
+** Choice
+Introducing a choice operator and a page width attribute
 
--- example
+> choice :@ [opt_a, opt_b] =
+>   productions $
+>     pp ::= "Choice" :@ ["opt_a" ::: pp, "opt_b" ::: pp] :& nilT
+>
+> a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
 
-pp_ites condD thenD elseD
-  =   ifc >||< thent >||< elsee  >||< fi
-  >^< ifc >||<  t "then"
-      >-< ind 2 thenD
-      >-< t "else"
-      >-< ind 2 elseD
-      >-< fi
-  >^< ifc >-< thent >-< elsee  >-< fi
-  >^< ifc >||< (thent >-< elsee) >-< fi
-  where ifc   = t "if"   >||< condD
-        thent = t "then" >||< thenD
-        elsee = t "else" >||< elseD
-        fi    = t "fi"
+*** Example
 
-example2 = pp_ites (t "x < y") (t "print foobar") (t "print y")
+> pp_ites condD thenD elseD
+>   =   ifc >||< thent >||< elsee  >||< fi
+>   >^< ifc >||<  t "then"
+>       >-< ind 2 thenD
+>       >-< t "else"
+>       >-< ind 2 elseD
+>       >-< fi
+>   >^< ifc >-< thent >-< elsee  >-< fi
+>   >^< ifc >||< (thent >-< elsee) >-< fi
+>   where ifc   = t "if"   >||< condD
+>         thent = t "then" >||< thenD
+>         elsee = t "else" >||< elseD
+>         fi    = t "fi"
 
--- page width
+> example2 = pp_ites (t "x < y") (t "print foobar") (t "print y")
 
-pw = attr "page_width" I pInt
 
-{- we will be working on lists of formats now.  Formats are
+** Page width
+
+> pw = attr "page_width" I pInt
+
+We will be working on lists of formats now.  Formats are
 records of the synthesized attributes height, last_width,
 total_width, body, last_line In order to compute the list of
 formats we will be using the algebras that are defined by the
 previous AG. We need a public access to the AG algebra.
 
-type Algebra = Production :-> SemProd
-  = Production :-> ((Child :-> SemTree) -> AttrMap T -> SemTree)
-  = Production :-> ((Child :-> (AttrMap I -> AttrMap S)) -> AttrMap T -> AttrMap I -> AttrMap S)
--}
-
-{-
+* Local variables for emacs
 Local Variables:
+mode: org
+eval: (org-indent-mode -1)
+eval: (mmm-mode)
+eval: (mmm-ify-by-class 'literate-haskell-bird)
+eval: (local-set-key (kbd "<XF86MonBrightnessDown>") 'mmm-parse-buffer)
 compile-command: "lhs2TeX --newcode PrettyPrinting.lhs > PrettyPrinting.hs && cd ../../..; ghc Grammar.SafeAG.Examples.PrettyPrinting"
 End:
--}
-\end{code}
