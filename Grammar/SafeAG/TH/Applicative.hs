@@ -104,7 +104,8 @@ instance Monoid (ListF a) where
 --------------------------------------------------
 applicative qe = do
   (e, xs, as) <- runPullQ . exp =<< qe
-  return $ liftE (LamE (VarP <$> xs) e) as
+  let f = if null xs then e else LamE (VarP <$> xs) e
+  return $ liftE f as
 
 -- | liftE f [e1..en] == pure f <*> e1 <*> ... <*> en
 liftE f es = applies (AppE (VarE 'pure) f : es)
