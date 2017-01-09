@@ -52,12 +52,11 @@ effectful expression (enclosed in ⟨..⟩).
 Another corollary is that if a local function is defined inside applicative brackets ⟦..⟧,
 then its parameters may not be used inside effectful brackets ⟨..⟩.
 
-TODO: use the original expression to display a nice error message.
-TODO: update the bound variables
- - statements
- - matches
-TODO: pattern guards
+NOTE: the infix brackets cannot be used around effectful expressions:
 
+>>>  ⟦ x `⟨expr⟩` y ⟧ -- ILLEGAL
+
+TODO: use the original expression to display a nice error message.
 
 -}
 
