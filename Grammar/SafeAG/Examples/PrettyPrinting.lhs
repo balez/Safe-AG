@@ -15,8 +15,7 @@
 > import Grammar.SafeAG
 > import Data.Proxy
 > import Control.Applicative hiding (empty)
-> import Data.Dynamic
-> import GHC.Stack
+> import Data.Dynamic (Typeable)
 > import Grammar.SafeAG.TH.Idiom
 > import Grammar.SafeAG.TH.Applicative
 
@@ -97,7 +96,7 @@
 * Rules
 
 > is_empty :: Child -> AR Bool
-> is_empty c = ⟦ all (== 0) ⟪[c!height, c!total_width, c!last_width]⟫ ⟧
+> is_empty c = ⟦ all (== 0) [⟨c!height⟩, ⟨c!total_width⟩, ⟨c!last_width⟩] ⟧
 
 > emptyA = def_S empty
 >   [ body        := ⟦ []  ⟧
@@ -112,7 +111,8 @@
 >   , last_line   := ⟦ str ⟨ter string⟩ ⟧
 >   , height      := ⟦ 1 ⟧
 >   , last_width  := len
->   , total_width := len]
+>   , total_width := len
+>   ]
 >   where
 >     len = ⟦ length ⟨ter string⟩ ⟧
 
@@ -175,51 +175,13 @@
 
 > allA = emptyA # textA # indentA # besideA # aboveA
 
+** Tests
+
 > test x = case runTree allA pp x mempty of
 >   Left err -> putStr $ prettyError err
 >   Right s -> do {putStr $ unlines (map from_str (s ! body)); putStrLn (from_str (s ! last_line))}
 >   where m ! x = fromJust $ lookup_attrs x m
 >         fromJust (Just x) = x
->
-
-* Extensions
-** Choice
-Introducing a choice operator and a page width attribute
-
-> choice :@ [opt_a, opt_b] =
->   productions $
->     pp ::= "Choice" :@ ["opt_a" ::: pp, "opt_b" ::: pp] :& nilT
->
-> a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
-
-*** Example
-
-> pp_ites condD thenD elseD
->   =   ifc >||< thent >||< elsee  >||< fi
->   >^< ifc >||<  t "then"
->       >-< ind 2 thenD
->       >-< t "else"
->       >-< ind 2 elseD
->       >-< fi
->   >^< ifc >-< thent >-< elsee  >-< fi
->   >^< ifc >||< (thent >-< elsee) >-< fi
->   where ifc   = t "if"   >||< condD
->         thent = t "then" >||< thenD
->         elsee = t "else" >||< elseD
->         fi    = t "fi"
-
-> example2 = pp_ites (t "x < y") (t "print foobar") (t "print y")
-
-
-** Page width
-
-> pw = attr "page_width" I pInt
-
-We will be working on lists of formats now.  Formats are
-records of the synthesized attributes height, last_width,
-total_width, body, last_line In order to compute the list of
-formats we will be using the algebras that are defined by the
-previous AG. We need a public access to the AG algebra.
 
 * Local variables for emacs
 Local Variables:
