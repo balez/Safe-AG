@@ -122,7 +122,7 @@ can implement a very flexible namespace system.
 ** Module Exports
 
 - when using the library primitives, the user should never
-  SEE any `Dynamic', always concrete types.
+  manipulate any `Dynamic', always concrete types.
 - the user should never SEE Attribute, only `Attr k a'
 
 > module Grammar.SafeAG.Core
@@ -209,7 +209,7 @@ We keep the context and errors abstract, we can only `show' them.
 
 ***** Inherited attributes
 
-> , InhDesc, emptyInhDesc, mergeInhDesc, embed_I -- Monoid
+> , InDesc, emptyInDesc, mergeInDesc, embed -- Monoid
 
 ***** Terminal attributes
 
@@ -228,7 +228,11 @@ We keep the context and errors abstract, we can only `show' them.
 *** AG Algebra
 **** Specifying the input
 
-> , AlgInput, AlgRule, projI, synAlg, emptyInput, mergeInput
+> , AlgInput, AlgRule, projI, projE, synAlg, synAlgs, emptyInput, mergeInput, map_env, zipInput
+
+**** Running
+
+> , alg, algAttr, algAR, algAttrAR
 
 *** End-of-export
 
@@ -263,6 +267,8 @@ We keep the context and errors abstract, we can only `show' them.
 > cst3 r x y z = r
 > res2 g f x y = g (f x y)
 > res3 g f x y z = g (f x y z)
+> res4 g f w x y z = g (f w x y z)
+> res5 g f v w x y z = g (f v w x y z)
 
 ** Maybe, Either
 
@@ -1378,13 +1384,13 @@ Nicer pairs for association lists [(a,b)]
 
 > infix 2 :=
 
-> data AttrDef k where
->   (:=) :: Typeable a => Attr k a -> AR a -> AttrDef k
+> data AttrDef f k where
+>   (:=) :: Typeable a => Attr k a -> f a -> AttrDef f k
 
-> def_S :: Production -> [AttrDef S] -> Aspect
+> def_S :: Production -> [AttrDef AR S] -> Aspect
 > def_S p = foldl (\rs (a := r) -> rs # syn a p r) emptyAspect
 
-> def_I :: Child -> [AttrDef I] -> Aspect
+> def_I :: Child -> [AttrDef AR I] -> Aspect
 > def_I c = foldl (\rs (a := r) -> rs # inh a c r) emptyAspect
 
 * Generic rules
@@ -1445,7 +1451,7 @@ constraints.
 > collectAll :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectAll a reduce p = syn a p $
 >   (reduce . filterJust) <$> traverse (?a) (prod_children p)
- 
+
 > collectAlls :: Typeable a => Attr S a -> ([a] -> a) -> [Production] -> Aspect
 > collectAlls = many2 collectAll
 
@@ -1534,32 +1540,38 @@ SynDesc is abstract
 
 **** Inherited attributes
 
-> newtype InhDesc t  = InhDesc { runInhDesc ::
->    Writer ([Attribute I]) (t -> AttrMap I) }
+> newtype InDesc k t  = InDesc { runInDesc ::
+>    Writer ([Attribute k]) (t -> AttrMap k) }
 
-> emptyInhDesc :: InhDesc t
-> emptyInhDesc = InhDesc $ return $ pure $ Map.empty
+> type InhDesc t = InDesc I t
 
-> embed_I :: Typeable a =>
->   Attr I a -> (i -> a) -> InhDesc i
-> embed_I a p = InhDesc $ do
+> emptyInDesc :: InDesc k t
+> emptyInDesc = InDesc $ return $ pure $ Map.empty
+
+> embed :: Typeable a =>
+>   Attr k a -> (i -> a) -> InDesc k i
+> embed a p = InDesc $ do
 >   tell [Attribute a]
 >   return $ Map.singleton (Attribute a) . toDyn . p
 
-> mergeInhDesc :: InhDesc t -> InhDesc t -> InhDesc t
-> InhDesc x `mergeInhDesc` InhDesc y =
->   InhDesc $ liftA2 union x y
+> mergeInDesc :: InDesc k t -> InDesc k t -> InDesc k t
+> InDesc x `mergeInDesc` InDesc y =
+>   InDesc $ liftA2 union x y
 >  where
 >    union f g = \x -> Map.union (f x) (g x)
 
-> instance Monoid (InhDesc t) where
->   mempty = emptyInhDesc
->   mappend = mergeInhDesc
+> instance Monoid (InDesc k t) where
+>   mempty = emptyInDesc
+>   mappend = mergeInDesc
 
 ***** Private
 
+> proj_in :: InDesc k a -> a -> AttrMap k
+> proj_in = fst . runWriter . runInDesc
+
 > proj_I :: InhDesc i -> i -> AttrMap I
-> proj_I = fst . runWriter . runInhDesc
+> proj_I = proj_in
+> runInhDesc = runInDesc
 
 **** Example
 
@@ -2047,17 +2059,21 @@ each child, all of this in the context of a production.
 The approach is very similar to the one for defining aspects
 and gathering constraints, with `AlgM' playing the role of
 the `A' monad, `SemTreeM' playing the role of the `R' monad,
-and `AlgRule' playing the role of `AR' monoid.
+`AlgRule' the role of `AR' monoid, and `AlgInput' the role of
+`Aspect'. TODO: find better names.
 
-> newtype AlgM a = AlgM {runAlgM :: ReaderT Child (ExceptT Error (Writer AlgCtx)) a}
+> newtype AlgM a =
+>  AlgM {runAlgM :: ReaderT Child (ExceptT Error (Writer AlgCtx)) a}
 >  deriving (Functor, Applicative, Monad, MonadReader Child, MonadError Error, MonadWriter AlgCtx)
-> newtype SemTreeM a = SemTreeM {runSemTreeM :: Reader (AttrMap I) a}
->  deriving (Functor, Applicative, Monad, MonadReader (AttrMap I))
-> newtype AlgRule a = AlgRule {runAlgRule :: AlgM (SemTreeM a)}
-> newtype AlgInput = AlgInput (Check (Production, Child :-> AlgRule (AttrMap S)))
+> newtype SemTreeM e a =
+>  SemTreeM {runSemTreeM :: Reader (e, AttrMap I) a}
+>  deriving (Functor, Applicative, Monad, MonadReader (e, AttrMap I))
+> newtype AlgRule e a = AlgRule {runAlgRule :: AlgM (SemTreeM e a)}
+> newtype AlgInput e =
+>   AlgInput (Check (Production, Child :-> AlgRule e (AttrMap S)))
 
-The context type is different we ensure synthesized
-attributes for children rather than productions.
+The context type is different here because we ensure
+synthesized attributes for children rather than productions.
 
 > data AlgCtx = AlgCtx
 >   { algCtx_I :: Set Require_I
@@ -2075,51 +2091,86 @@ attributes for children rather than productions.
 The previous types are abstract. We provide the following
 primitives to build values.
 
-> instance Applicative AlgRule where
+> instance Applicative (AlgRule e) where
 >   pure x = AlgRule (pure (pure x))
 >   AlgRule f <*> AlgRule x = AlgRule ((<*>) <$> f <*> x)
-> instance Functor AlgRule where
+> instance Functor (AlgRule e) where
 >   fmap f x = pure f <*> x
 
-> projI :: Typeable a => Attr I a -> AlgRule a
+> projI :: Typeable a => Attr I a -> AlgRule e a
 > projI a = AlgRule $ do
 >  c <- ask
 >  tell $ emptyAlgCtx { algCtx_I = cstr a (child_nt c) }
 >  return $ do
->    is <- ask
+>    is <- asks snd
 >    return $ fromMaybe err $ lookupAttr a is
 >   where
 >     err = error $ "[BUG] projI: undefined attribute " ++ show a
 
-> synAlg :: Typeable a => Attr S a -> Child -> AlgRule a -> AlgInput
-> synAlg a c r =
+> projE :: (e -> a) -> AlgRule e a
+> projE f = AlgRule (return $ asks $ f . fst)
+
+> synAlg :: Typeable a => Child -> Attr S a -> AlgRule e a -> AlgInput e
+> synAlg c a r =
 >   AlgInput $ return (child_prod c, c |-> singleAttr a <$> r')
 >  where
 >   r' = AlgRule $ local (const c) (constraint >> runAlgRule r)
 >   constraint = tell $ emptyAlgCtx { algCtx_S = cstr a c }
 
-> emptyInput :: Production -> AlgInput
+> synAlgs :: Child -> [AttrDef (AlgRule e) S] -> AlgInput e
+> synAlgs c =
+>   foldr (\(a := r) i -> i `mergeInput` synAlg c a r) (emptyInput (child_prod c))
+
+> emptyInput :: Production -> AlgInput e
 > emptyInput p = AlgInput $ return (p, Map.empty)
 
-Note that mergeInput must check that both inputs are
-compatible: the children in the map must be all siblings of
+Note that |mergeInput| must check that both inputs are
+compatible: the children in the map must all be siblings of
 the same production.
 
-> mergeInput :: AlgInput -> AlgInput -> AlgInput
+> mergeInput :: AlgInput e -> AlgInput e -> AlgInput e
 > mergeInput (AlgInput x) (AlgInput y) = AlgInput $ do
 >   (p, m) <- x
 >   (p', m') <- y
 >   when (p /= p') $ throwErrorCheck $ Error_Algebra_Different_Productions p p'
 >   return (p, Map.unionWith mergeAlgRule m m')
 
+> map_env :: (b -> a) -> AlgInput a -> AlgInput b
+> map_env f (AlgInput m) = AlgInput $ do
+>   (p, mr) <- m
+>   return (p, Map.map (alg_rule_map_env f) mr)
+
+> zipInput :: AlgInput a -> AlgInput b -> AlgInput (a,b)
+> zipInput l r = map_env fst l `mergeInput` map_env snd r
+ 
+> inAlgRule f =  AlgRule . f . runAlgRule
+> inSemTreeM f = SemTreeM . f . runSemTreeM
+> inAlgSemTree f = inAlgRule (fmap (inSemTreeM f))
+ 
+> alg_rule_map_env :: (b -> a) -> AlgRule a x -> AlgRule b x
+> alg_rule_map_env f =
+>   inAlgSemTree (withReader (\(b,i) -> (f b, i)))
+
 `mergeAlgRule' is private, we go through two monads.
 
-> mergeAlgRule :: Op (AlgRule (AttrMap S))
+> mergeAlgRule :: Op (AlgRule e (AttrMap S))
 > mergeAlgRule (AlgRule x) (AlgRule y) = AlgRule $
 >   liftM2 (liftM2 mergeAttrs) x y
 
- > runAlgebra :: Aspect -> AlgInput -> Attrs T -> Attrs I -> Check (Attrs S)
- > runAlgebra aspect input terminals inherited = do
+> algAR = checkAR `res5` alg
+> algAttrAR = checkAR `res4` algAttr
+
+> checkAR :: Check a -> AR a
+> checkAR = either err pure
+>  where err e = AR (throwError e)
+
+> alg :: InDesc I i -> InDesc T t -> SynDesc s -> Aspect -> AlgInput e -> Check (e -> t -> i -> s)
+> alg = undefined
+
+> algAttr :: Aspect -> AlgInput e -> Attrs T -> Attrs I -> Check (e -> Attrs S)
+> algAttr = undefined
+
+ > algAttr aspect input terminals inherited = do
  >   (p, rs) <- check_input input
  >   let (check_aspect, ctx) = runAspect aspect
  >   pure_asp <- check_aspect
@@ -2128,7 +2179,7 @@ the same production.
 
 private
 
-> check_input :: AlgInput -> Check (Production, Child :-> AlgRule (AttrMap S))
+> check_input :: AlgInput e -> Check (Production, Child :-> AlgRule e (AttrMap S))
 > check_input (AlgInput x) = do
 >   (prod, rules) <- x
 >   let (invalid_children, missing_children) =
