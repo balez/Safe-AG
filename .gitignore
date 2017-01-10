@@ -3,6 +3,7 @@
 *.dyn_hi
 *.dyn_o
 Grammar/SafeAG/Examples/PrettyPrinting.hs
+Grammar/SafeAG/Examples/PrettyPrintingExt.hs
 Grammar/SafeAG/Examples/Binary.hs
 Grammar/SafeAG/Examples/Repmin.hs
 Grammar/SafeAG/Examples/Brackets.hs
