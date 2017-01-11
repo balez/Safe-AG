@@ -60,6 +60,8 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
+- keep/remove rules from aspects
+- share common definitions for AG and algebras. (there are a lot of similarities)
 - syns/inhs with support for generic rules
 - Add callstack to the reader monad for aspects (cf discussion [[callstacks]])
 - Make the algebra public (Production :-> SemProd) so that
@@ -209,7 +211,7 @@ We keep the context and errors abstract, we can only `show' them.
 
 ***** Inherited attributes
 
-> , InDesc, emptyInDesc, mergeInDesc, embed -- Monoid
+> , InhDesc, InDesc, emptyInDesc, mergeInDesc, embed -- Monoid
 
 ***** Terminal attributes
 
@@ -228,7 +230,7 @@ We keep the context and errors abstract, we can only `show' them.
 *** AG Algebra
 **** Specifying the input
 
-> , AlgInput, AlgRule, projI, projE, synAlg, synAlgs, emptyInput, mergeInput, map_env, zipInput
+> , AlgInput, AlgRule, projI, projE, askE, synAlg, synAlgs, emptyInput, mergeInput, map_env, zipInput
 
 **** Running
 
@@ -1092,6 +1094,24 @@ if this definition is not provided by `aspect'.
 >   Attr S a -> Production -> Aspect -> Aspect
 > delete_S a p = inAspect $
 >   Map.adjust (delete_rule_S a p) p
+
+TODO:
+< proj_I :: Attr I a -> Child -> Aspect -> Aspect
+< proj_S :: Attr S a -> Production -> Aspect -> Aspect
+
+< keep :: Aspect -> [RuleName] -> Aspect
+< remove :: Aspect -> [RuleName] -> Aspect
+< keepAttrs :: Aspect -> Attr I
+
+> data SomeAttr where
+>   SomeAttr :: Attr k a -> SomeAttr
+
+> data IRuleName where
+>   IRuleName :: Attr I a -> Child -> IRuleName
+> data SRuleName where
+>   SRuleName :: Attr S a -> Production -> SRuleName
+
+> data RuleName = IRule IRuleName | SRule SRuleName
 
 `runAspect` is private. Note: the production in the readerT
 is not used for rules.  Because when we build rules we always
@@ -2110,6 +2130,8 @@ primitives to build values.
 > projE :: (e -> a) -> AlgRule e a
 > projE f = AlgRule (return $ asks $ f . fst)
 
+> askE = projE id
+
 > synAlg :: Typeable a => Child -> Attr S a -> AlgRule e a -> AlgInput e
 > synAlg c a r =
 >   AlgInput $ return (child_prod c, c |-> singleAttr a <$> r')
@@ -2142,11 +2164,11 @@ the same production.
 
 > zipInput :: AlgInput a -> AlgInput b -> AlgInput (a,b)
 > zipInput l r = map_env fst l `mergeInput` map_env snd r
- 
+
 > inAlgRule f =  AlgRule . f . runAlgRule
 > inSemTreeM f = SemTreeM . f . runSemTreeM
 > inAlgSemTree f = inAlgRule (fmap (inSemTreeM f))
- 
+
 > alg_rule_map_env :: (b -> a) -> AlgRule a x -> AlgRule b x
 > alg_rule_map_env f =
 >   inAlgSemTree (withReader (\(b,i) -> (f b, i)))
@@ -2164,7 +2186,7 @@ the same production.
 > checkAR = either err pure
 >  where err e = AR (throwError e)
 
-> alg :: InDesc I i -> InDesc T t -> SynDesc s -> Aspect -> AlgInput e -> Check (e -> t -> i -> s)
+> alg :: InDesc I i -> InDesc T t -> SynDesc s -> Aspect -> AlgInput e -> Check (t -> e -> i -> s)
 > alg = undefined
 
 > algAttr :: Aspect -> AlgInput e -> Attrs T -> Attrs I -> Check (e -> Attrs S)
