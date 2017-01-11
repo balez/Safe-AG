@@ -58,6 +58,13 @@ Introducing a choice operator and a page width attribute.
 
 > pw = attr "page_width" I pInt
 
+`pw' is copied everywhere. I think it is good that we are
+required to name explicitely the children where an attribute
+is copied.
+ 
+> pwA = copyPs pw [indent, beside, above, choice]
+>       # copyN pw [docs, head_pp, tail_pp]
+
 We will be working on lists of formats now.  Formats are
 records of the synthesized attributes height, last_width,
 total_width, body, last_line.
