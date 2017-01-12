@@ -60,6 +60,7 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
+- better notation for InDesc (indesc [ a :<- funa, b :<- funb ])
 - keep/remove rules from aspects
 - share common definitions for AG and algebras. (there are a lot of similarities)
 - syns/inhs with support for generic rules
@@ -2186,10 +2187,10 @@ the same production.
 > checkAR = either err pure
 >  where err e = AR (throwError e)
 
-> alg :: InDesc I i -> InDesc T t -> SynDesc s -> Aspect -> AlgInput e -> Check (t -> e -> i -> s)
+> alg :: Aspect -> InDesc I i -> InDesc T t -> AlgInput e -> SynDesc s -> Check (i -> t -> e -> s)
 > alg = undefined
 
-> algAttr :: Aspect -> AlgInput e -> Attrs T -> Attrs I -> Check (e -> Attrs S)
+> algAttr :: Aspect -> Attrs I -> Attrs T -> AlgInput e -> Check (e -> Attrs S)
 > algAttr = undefined
 
  > algAttr aspect input terminals inherited = do
