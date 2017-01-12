@@ -17,7 +17,8 @@ Extension to the pretty printing library.
 
 > import Grammar.SafeAG
 > import qualified Grammar.SafeAG.Examples.PrettyPrinting as PP
-> import Grammar.SafeAG.Examples.PrettyPrinting hiding (height, last_width, total_width, body, last_line, is_empty)
+> import Grammar.SafeAG.Examples.PrettyPrinting
+>   hiding (height, last_width, total_width, body, last_line, is_empty)
 > import Data.Proxy
 > import Data.List (sort)
 > import Data.Function (on)
@@ -25,6 +26,56 @@ Extension to the pretty printing library.
 > import Data.Dynamic (Typeable)
 > import Grammar.SafeAG.TH.Idiom
 > import Grammar.SafeAG.TH.Applicative
+
+* Algebra builder
+
+Using `algAR' can be a bit verbose. We define a helper that
+specialises `algAR' to productions of different arities:
+different number of terminals and children.  Note that this
+helper is specific to a case when all the children have the
+same attributes, but this is the most common case.
+
+> data AlgBuilder i s = AlgBuilder
+>  { alg0  :: Production -> AR (i -> s)
+>  , alg0T :: forall a . Typeable a => Production -> Attr T a -> AR (i -> a -> s)
+>  , alg0T2 :: forall a b . (Typeable a, Typeable b) => Production -> Attr T a -> Attr T b -> AR (i -> a -> b -> s)
+>  , alg1 :: Child -> AR (i -> s -> s)
+>  , alg1T :: forall a . Typeable a => Child -> Attr T a -> AR (i -> a -> s -> s)
+>  , alg1T2 :: forall a b . (Typeable a, Typeable b) => Child -> Attr T a -> Attr T b -> AR (i -> a -> b -> s -> s)
+>  , alg2  :: Child -> Child -> AR (i -> s -> s -> s)
+>  , alg2T :: forall a . Typeable a => Child -> Child -> Attr T a -> AR (i -> a -> s -> s -> s)
+>  , alg2T2 :: forall a b . (Typeable a, Typeable b) => Child -> Child -> Attr T a -> Attr T b -> AR (i -> a -> b -> s -> s -> s)
+>  , algN  :: Production -> AR (i -> [s] -> s)
+>  }
+
+> algBuilder :: InhDesc i -> SynDesc s -> (Child -> AlgInput s) -> Aspect -> AlgBuilder i s
+> algBuilder idesc sdesc input aspect =
+>   let alg inp = ⟦ \i -> ⟨algAR aspect idesc mempty inp sdesc⟩ i () ⟧
+>       algT tdesc inp = algAR aspect idesc tdesc inp sdesc
+>       zip = zipInput `on` input
+>       inputs p = foldr inputs_cons (emptyInput p) (prod_children p)
+>       inputs_cons c is = (\(h:t) -> (h,t)) `map_env` zipInput (input c) is
+>   in AlgBuilder
+>   { alg0 = \p -> ⟦ \i -> ⟨alg (emptyInput p)⟩ i () ⟧
+>   , alg0T = \p a -> ⟦ \i t -> ⟨algT (embed a id) (emptyInput p)⟩ i t () ⟧
+>   , alg0T2 = \p a b -> ⟦ \i a' b' -> ⟨algT (embed a fst `mappend` embed b snd) (emptyInput p)⟩ i (a',b') () ⟧
+>   , alg1  = \x -> alg (input x)
+>   , alg1T = \x a -> algT (embed a id) (input x)
+>   , alg1T2 = \x a b -> ⟦ \i a' b' x' -> ⟨algT (embed a fst `mappend` embed b snd) (input x)⟩ i (a',b') x'⟧
+>   , alg2 = \x y -> ⟦ \i x' y' -> ⟨alg (x `zip` y)⟩ i (x', y') ⟧
+>   , alg2T = \x y a -> ⟦ \i a' x' y' -> ⟨algT (embed a id) (x `zip` y)⟩ i a' (x',y') ⟧
+>   , alg2T2 = \x y a b -> ⟦ \i a' b' x' y' -> ⟨algT (embed a fst `mappend` embed b snd) (x `zip` y)⟩ i (a', b') (x', y') ⟧
+>   , algN = alg . inputs
+>   }
+
+** PP algebras
+
+> empty_alg  (AlgBuilder{..}) = alg0  empty
+> text_alg   (AlgBuilder{..}) = alg0T text string
+> indent_alg (AlgBuilder{..}) = alg1T indented margin
+> beside_alg (AlgBuilder{..}) = alg2  left right
+> above_alg  (AlgBuilder{..}) = alg2  upper lower
+> choice_alg (AlgBuilder{..}) = alg2  opt_a opt_b
 
 * Extensions
 ** Choice
@@ -61,7 +112,7 @@ Introducing a choice operator and a page width attribute.
 `pw' is copied everywhere. I think it is good that we are
 required to name explicitely the children where an attribute
 is copied.
- 
+
 > pwA = copyPs pw [indent, beside, above, choice]
 >       # copyN pw [docs, head_pp, tail_pp]
 
@@ -129,63 +180,18 @@ Eq and Ord instances ignore the textual content of the format.
 >   , PP.total_width := projE total_width ]
 
 > fmtInput child = synAlgs child fmtDefs
-> fmtAlg terminals input =
->   ⟦ \env terms -> ⟨algAR mempty terminals fmtDesc PP.allA input⟩ terms env () ⟧
 
 ***** Algebras
-****** Builder
-> data AlgBuildS s = AlgBuildS
->  { alg0  :: Production -> AR s
->  , alg0T :: forall t . Typeable t => Production -> Attr T t -> AR (t -> s)
->  , alg1T :: forall t . Typeable t => Child -> Attr T t -> AR (t -> s -> s)
->  , alg2  :: Child -> Child -> AR (s -> s -> s)
->  , algN  :: Production -> AR ([s] -> s)
->  }
-
-> algBuildS :: SynDesc s -> (Child -> AlgInput s) -> Aspect -> AlgBuildS s
-> algBuildS sdesc input aspect =
->   let alg inp = ⟦ \e -> ⟨algAR mempty mempty sdesc aspect inp⟩ () e () ⟧
->       algT tdesc inp = ⟦ \t e -> ⟨algAR mempty tdesc sdesc aspect inp⟩ t e () ⟧
->       zip = zipInput `on` input
->       inputs p = foldr inputs_cons (emptyInput p) (prod_children p)
->       inputs_cons c is = (\(h:t) -> (h,t)) `map_env` zipInput (input c) is
->   in AlgBuildS
->   { alg0 = \p -> ⟦ ⟨alg (emptyInput p)⟩ () ⟧
->   , alg0T = \p a -> ⟦ \t -> ⟨algT (embed a id) (emptyInput p)⟩ t () ⟧
->   , alg1T = \c a -> algT (embed a id) (input c)
->   , alg2 = \x y -> ⟦ curry ⟨alg (x `zip` y)⟩ ⟧
->   , algN = alg . inputs
->   }
-
-
-****** PP algebra builder
-
-> empty_alg  (AlgBuildS{..}) = alg0  empty
-> text_alg   (AlgBuildS{..}) = alg0T text string
-> indent_alg (AlgBuildS{..}) = alg1T indented margin
-> beside_alg (AlgBuildS{..}) = alg2  left right
-> above_alg  (AlgBuildS{..}) = alg2  upper lower
-> choice_alg (AlgBuildS{..}) = alg2  opt_a opt_b
-
 ****** Format algebras
 
-> fmtBuild = algBuildS fmtDesc fmtInput PP.allA
+> fmtBuild = algBuilder mempty fmtDesc fmtInput PP.allA
 
-> empty_fmt  = empty_alg  fmtBuild
-> text_fmt   = text_alg   fmtBuild
-> indent_fmt = indent_alg fmtBuild
-> beside_fmt = beside_alg fmtBuild
-> above_fmt  = above_alg  fmtBuild
-> choice_fmt = choice_alg fmtBuild
-
-< data PPAlg a = PPAlg
-< { empty_alg  :: a
-< , text_alg   :: String -> a
-< , indent_alg :: Int -> a -> a
-< , beside_alg :: a -> a -> a
-< , above_alg  :: a -> a -> a
-< , choice_alg :: a -> a -> a
-< }
+> empty_fmt  = ⟦ ⟨empty_alg  fmtBuild⟩ () ⟧
+> text_fmt   = ⟦ ⟨text_alg   fmtBuild⟩ () ⟧
+> indent_fmt = ⟦ ⟨indent_alg fmtBuild⟩ () ⟧
+> beside_fmt = ⟦ ⟨beside_alg fmtBuild⟩ () ⟧
+> above_fmt  = ⟦ ⟨above_alg  fmtBuild⟩ () ⟧
+> choice_fmt = ⟦ ⟨choice_alg fmtBuild⟩ () ⟧
 
 **** Rules
 
@@ -232,19 +238,7 @@ TODO: share empty and text with fmtsA
 > merge l [] = l
 
 ** Splitting Combinators
-
-< hor_or_ver pw es
-<   = choice_fmts pw ver_fmts
-<                    (if allh1 then hor_fmts
-<                              else fail_fmts)
-<  where
-<    e_fmts   = map (doc2fmts pw) es
-<    hor_fmts = foldr1 (beside_fmts pw) e_fmts
-<    ver_fmts = foldr1 (above_fmts pw) e_fmts
-<    allh1 = and
-<          . map ((== 1) . height . head)
-<          $ e_fmts
-<    fail_fmts = []
+*** Grammar extension
 
 > hor_or_ver :@ [docs] =
 >   productions $
@@ -257,63 +251,95 @@ TODO: share empty and text with fmtsA
 >                               , "tail_pp" ::: list_pp] :& nilT
 >              :|  "Nil_PP" :@ [] :& nilT ]
 
-*** AG-Alg for fmts
+*** Fmts algebras
 In the article implementation, `hor_or_ver' is defined in terms
-of the format lists primitives. Since we defined them as
+of the format-list primitives. Since we defined them as
 attributes, we must compute the AG-algebras.
 
-*** Algebra Builder with inherited attributes
-
-> data AlgBuildI i s = AlgBuildI
->  { algi0  :: Production -> AR (i -> s)
->  , algi0T :: forall t . Typeable t => Production -> Attr T t -> AR (i -> t -> s)
->  , algi1T :: forall t . Typeable t => Child -> Attr T t -> AR (i -> t -> s -> s)
->  , algi2  :: Child -> Child -> AR (i -> s -> s -> s)
->  , algiN  :: Production -> AR (i -> [s] -> s)
->  }
-
-> algBuildI :: InhDesc i -> SynDesc s -> (Child -> AlgInput s) -> Aspect -> AlgBuildI i s
-> algBuildI idesc sdesc input aspect =
->   let alg inp = ⟦ \i e -> ⟨algAR idesc mempty sdesc aspect inp⟩ () e i ⟧
->       algT tdesc inp = ⟦ \i t e -> ⟨algAR idesc tdesc sdesc aspect inp⟩ t e i ⟧
->       zip = zipInput `on` input
->       inputs p = foldr inputs_cons (emptyInput p) (prod_children p)
->       inputs_cons c is = (\(h:t) -> (h,t)) `map_env` zipInput (input c) is
->   in AlgBuildI
->   { algi0 = \p -> ⟦ \i -> ⟨alg (emptyInput p)⟩ i () ⟧
->   , algi0T = \p a -> ⟦ \i t -> ⟨algT (embed a id) (emptyInput p)⟩ i t () ⟧
->   , algi1T = \c a -> algT (embed a id) (input c)
->   , algi2 = \x y -> ⟦ \i -> curry (⟨alg (x `zip` y)⟩ i) ⟧
->   , algiN = alg . inputs
->   }
-
-*** PP algebra builder
-
-> empty_algi  (AlgBuildI{..}) = algi0  empty
-> text_algi   (AlgBuildI{..}) = algi0T text string
-> indent_algi (AlgBuildI{..}) = algi1T indented margin
-> beside_algi (AlgBuildI{..}) = algi2  left right
-> above_algi  (AlgBuildI{..}) = algi2  upper lower
-> choice_algi (AlgBuildI{..}) = algi2  opt_a opt_b
-
-*** Fmts algebras
-
 > fmtsInput child = synAlgs child [ fmts := askE ]
-> fmtsBuild = algBuildI (embed pw id) (project fmts) fmtsInput fmtsOptimA
+> fmtsBuild = algBuilder (embed pw id) (project fmts) fmtsInput fmtsOptimA
 
-> empty_fmts  = empty_algi  fmtsBuild
-> text_fmts   = text_algi   fmtsBuild
-> indent_fmts = indent_algi fmtsBuild
-> beside_fmts = beside_algi fmtsBuild
-> above_fmts  = above_algi  fmtsBuild
-> choice_fmts = choice_algi fmtsBuild
+> empty_fmts  = empty_alg  fmtsBuild
+> text_fmts   = text_alg   fmtsBuild
+> indent_fmts = indent_alg fmtsBuild
+> beside_fmts = beside_alg fmtsBuild
+> above_fmts  = above_alg  fmtsBuild
+> choice_fmts = choice_alg fmtsBuild
 
 *** Rules
+**** List of PP
+In the article, `hor_or_ver' is a function
+
+< hor_or_ver :: PW -> [PPDoc] -> Formats
+
+We're implementing `hor_or_ver' as a production of
+non-terminal `PP', for each we define the the attribute
+`fmts'. In the article, `hor_or_ver' first computes
+the lists of formats for each `PPDoc':
+
+< e_fmts = map (doc2fmts pw) es
+
+where
+
+< doc2fmts :: PW -> PPDoc -> Formats
+< doc2fmts pw = evalPPDoc (fmts_alg pw)
+
+To do this with attribute grammars, we define the attribute
+`fmtss' that computes a list of list of formats, essentially
+duplicating the definition of `map'.
 
 > fmtss = attr "fmtss" S (pList (pList pFormat))
+> fmtssA = syns fmtss
+>  [ nil_pp |- ⟦ [] ⟧
+>  , cons_pp |- ⟦ ⟨head_pp!fmts⟩ : ⟨tail_pp!fmtss⟩ ⟧
+>  ]
 
-Thanks to the effectful notation, we are able to write almost the same
-definition as in the article.
+***** Map
+The pattern can be abstracted:
+
+> type ListSpec = (Production, Child, Child)
+
+> mapA head_attr map_attr (nil, head, tail) =
+>   syns map_attr
+>   [ nil  |- ⟦ [] ⟧
+>   , cons |- ⟦ ⟨head!head_attr⟩ : ⟨tail!map_attr⟩ ⟧
+>   ]
+>  where cons = child_prod head
+
+> list_pp_spec = (nil_pp, head_pp, tail_pp)
+
+> fmtssA' = mapA fmts fmtss list_pp_spec
+
+***** Fold
+We can generalise mapA:
+
+> foldrA nil_val cons_fun head_attr fold_attr (nil, head, tail) =
+>   syns fold_attr
+>   [ nil  |- ⟦ nil_val ⟧
+>   , cons |- ⟦ cons_fun ⟨head!head_attr⟩ ⟨tail!fold_attr⟩ ⟧
+>   ]
+>  where cons = child_prod head
+
+MapA can be defined using foldrA:
+
+> mapA' = foldrA [] (:)
+
+Many new combinators can be written using foldrA:
+ 
+> sumA = foldrA 0 (+)
+> allA = foldrA False (&&)
+
+Note that `foldrA' requires one attribute for the head. To
+implement `lenghtA' we don't need any attribute, and in other
+cases we will need more than one. Can we generalise `foldrA'
+to a list of attributes?  Since the attributes have different
+types, we must use heterogeneous lists. The will involve some
+amount of dependent type programming.
+
+**** hor_or_ver
+
+Thanks to the effectful notation, we are able to write almost
+the same definition as in the article.
 
 > hor_or_verA = syns fmts
 >  [ hor_or_ver |- ⟦ case()of{_->
@@ -330,10 +356,9 @@ definition as in the article.
 >               $ e_fmts
 >         fail_fmts = []
 >    }⟧
->  ] # syns fmtss
->  [ nil_pp |- ⟦ [] ⟧
->  , cons_pp |- ⟦ ⟨head_pp!fmts⟩ : ⟨tail_pp!fmtss⟩ ⟧
->  ]
+>  ] # fmtssA
+
+** TODO: Frames
 
 * Local variables for emacs
 Local Variables:
