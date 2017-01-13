@@ -208,7 +208,7 @@ We keep the context and errors abstract, we can only `show' them.
 **** Concrete Types
 ***** Synthesized attributes
 
-> , SynDesc, project
+> , OutDesc, project, SynDesc
 
 ***** Inherited attributes
 
@@ -1534,21 +1534,23 @@ they will be using and build conversion functions
 **** Synthesized attributes
 For the synthesized attributes the following interface is enough.
 
-SynDesc is abstract
+OutDesc is abstract
 
-> newtype SynDesc s = SynDesc { runSynDesc ::
->   Writer (Set (Attribute S)) (AttrMap S -> s) }
+> newtype OutDesc k a = OutDesc { runOutDesc ::
+>   Writer (Set (Attribute k)) (AttrMap k -> a) }
 
-> instance Functor SynDesc where
+> type SynDesc a = OutDesc S a
+
+> instance Functor (OutDesc k) where
 >   fmap f x = pure f <*> x
 
-> instance Applicative SynDesc where
->   pure x = SynDesc $ return $ pure x
->   SynDesc f <*> SynDesc x =
->     SynDesc $ liftM2 (<*>) f x
+> instance Applicative (OutDesc k) where
+>   pure x = OutDesc $ return $ pure x
+>   OutDesc f <*> OutDesc x =
+>     OutDesc $ liftM2 (<*>) f x
 
-> project :: Typeable a => Attr S a -> SynDesc a
-> project a = SynDesc $ do
+> project :: Typeable a => Attr k a -> OutDesc k a
+> project a = OutDesc $ do
 >   tell (Set.singleton (Attribute a))
 >   return $ fromMaybe err . lookupAttr a
 >  where
@@ -1556,8 +1558,8 @@ SynDesc is abstract
 
 ***** Private
 
-> proj_S :: SynDesc s -> AttrMap S -> s
-> proj_S = fst . runWriter . runSynDesc
+> proj_S :: OutDesc k a -> AttrMap k -> a
+> proj_S = fst . runWriter . runOutDesc
 
 **** Inherited attributes
 
@@ -1606,7 +1608,7 @@ output :: Attr String
 speed  :: Attr Float
 
 specI = embed count a # embed flag b :: InhDesc I
-specS = S <$> project output <*> project speed :: SynDesc S
+specS = S <$> project output <*> project speed :: OutDesc S
   #+END_SRC
 
 *** Concrete tree specification
@@ -1859,7 +1861,7 @@ ensured by the rules.
 >     missing = unionSets (missing_S prods ens) ss'
 >     ss' = Set.map cstr ss
 >     cstr (Attribute a) = Constraint a root
->     (proj, ss) = runWriter . runSynDesc $ desc
+>     (proj, ss) = runWriter . runOutDesc $ desc
 
 The non-terminal associated with each child must correspond
 with the typeRep associated with each `childDesc'.
