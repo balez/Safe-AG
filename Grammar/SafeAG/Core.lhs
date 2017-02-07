@@ -212,7 +212,7 @@ We keep the context and errors abstract, we can only `show' them.
 
 ***** Inherited attributes
 
-> , InhDesc, InDesc, emptyInDesc, mergeInDesc, embed -- Monoid
+> , InhDesc, InDesc, emptyInDesc, mergeInDesc, embed, (<--), inDesc -- Monoid
 
 ***** Terminal attributes
 
@@ -231,7 +231,7 @@ We keep the context and errors abstract, we can only `show' them.
 *** AG Algebra
 **** Specifying the input
 
-> , AlgInput, AlgRule, projI, projE, askE, synAlg, synAlgs, emptyInput, mergeInput, map_env, zipInput
+> , AlgInput, AlgRule, projI, projE, askE, synAlg, synAlgs, algInput, emptyInput, mergeInput, map_env, zipInput
 
 **** Running
 
@@ -1571,11 +1571,12 @@ OutDesc is abstract
 > emptyInDesc :: InDesc k t
 > emptyInDesc = InDesc $ return $ pure $ Map.empty
 
-> embed :: Typeable a =>
+> embed, (<--) :: Typeable a =>
 >   Attr k a -> (i -> a) -> InDesc k i
 > embed a p = InDesc $ do
 >   tell [Attribute a]
 >   return $ Map.singleton (Attribute a) . toDyn . p
+> (<--) = embed
 
 > mergeInDesc :: InDesc k t -> InDesc k t -> InDesc k t
 > InDesc x `mergeInDesc` InDesc y =
@@ -1586,6 +1587,9 @@ OutDesc is abstract
 > instance Monoid (InDesc k t) where
 >   mempty = emptyInDesc
 >   mappend = mergeInDesc
+
+> inDesc :: [InDesc k t] -> InDesc k t
+> inDesc = mconcat
 
 ***** Private
 
@@ -2146,6 +2150,8 @@ primitives to build values.
 > synAlgs c =
 >   foldr (\(a := r) i -> i `mergeInput` synAlg c a r) (emptyInput (child_prod c))
 
+> algInput = flip synAlgs
+
 > emptyInput :: Production -> AlgInput e
 > emptyInput p = AlgInput $ return (p, Map.empty)
 
@@ -2189,8 +2195,9 @@ the same production.
 > checkAR = either err pure
 >  where err e = AR (throwError e)
 
-> alg :: Aspect -> InDesc I i -> InDesc T t -> AlgInput e -> SynDesc s -> Check (i -> t -> e -> s)
-> alg = undefined
+> alg :: Aspect -> InDesc I i -> InDesc T t -> AlgInput e -> OutDesc S s -> Check (i -> t -> e -> s)
+> alg asp idesc tdesc input sdesc = undefined
+>   -- TODO: checks
 
 > algAttr :: Aspect -> Attrs I -> Attrs T -> AlgInput e -> Check (e -> Attrs S)
 > algAttr = undefined
@@ -2199,8 +2206,8 @@ the same production.
  >   (p, rs) <- check_input input
  >   let (check_aspect, ctx) = runAspect aspect
  >   pure_asp <- check_aspect
- >   check_missing_alg (missing_alg ctx TODO)
- >   return empty_attrs
+ >   -- check_missing_alg (missing_alg ctx TODO)
+ >
 
 private
 

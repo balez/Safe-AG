@@ -50,21 +50,21 @@ same attributes, but this is the most common case.
 
 > algBuilder :: InhDesc i -> SynDesc s -> (Child -> AlgInput s) -> Aspect -> AlgBuilder i s
 > algBuilder idesc sdesc input aspect =
->   let alg inp = ⟦ \i -> ⟨algAR aspect idesc mempty inp sdesc⟩ i () ⟧
+>   let alg inp = ⟦ \i -> ⟨algAR aspect idesc (inDesc []) inp sdesc⟩ i () ⟧
 >       algT tdesc inp = algAR aspect idesc tdesc inp sdesc
 >       zip = zipInput `on` input
 >       inputs p = foldr inputs_cons (emptyInput p) (prod_children p)
 >       inputs_cons c is = (\(h:t) -> (h,t)) `map_env` zipInput (input c) is
 >   in AlgBuilder
 >   { alg0 = \p -> ⟦ \i -> ⟨alg (emptyInput p)⟩ i () ⟧
->   , alg0T = \p a -> ⟦ \i t -> ⟨algT (embed a id) (emptyInput p)⟩ i t () ⟧
->   , alg0T2 = \p a b -> ⟦ \i a' b' -> ⟨algT (embed a fst `mappend` embed b snd) (emptyInput p)⟩ i (a',b') () ⟧
+>   , alg0T = \p a -> ⟦ \i t -> ⟨algT (inDesc [a <-- id]) (emptyInput p)⟩ i t () ⟧
+>   , alg0T2 = \p a b -> ⟦ \i a' b' -> ⟨algT (inDesc [a <-- fst, b <-- snd]) (emptyInput p)⟩ i (a',b') () ⟧
 >   , alg1  = \x -> alg (input x)
->   , alg1T = \x a -> algT (embed a id) (input x)
->   , alg1T2 = \x a b -> ⟦ \i a' b' x' -> ⟨algT (embed a fst `mappend` embed b snd) (input x)⟩ i (a',b') x'⟧
+>   , alg1T = \x a -> algT (inDesc [a <-- id]) (input x)
+>   , alg1T2 = \x a b -> ⟦ \i a' b' x' -> ⟨algT (inDesc [a <-- fst, b <-- snd]) (input x)⟩ i (a',b') x'⟧
 >   , alg2 = \x y -> ⟦ \i x' y' -> ⟨alg (x `zip` y)⟩ i (x', y') ⟧
->   , alg2T = \x y a -> ⟦ \i a' x' y' -> ⟨algT (embed a id) (x `zip` y)⟩ i a' (x',y') ⟧
->   , alg2T2 = \x y a b -> ⟦ \i a' b' x' y' -> ⟨algT (embed a fst `mappend` embed b snd) (x `zip` y)⟩ i (a', b') (x', y') ⟧
+>   , alg2T = \x y a -> ⟦ \i a' x' y' -> ⟨algT (inDesc [a <-- id]) (x `zip` y)⟩ i a' (x',y') ⟧
+>   , alg2T2 = \x y a b -> ⟦ \i a' b' x' y' -> ⟨algT (inDesc [a <-- fst, b <-- snd]) (x `zip` y)⟩ i (a', b') (x', y') ⟧
 >   , algN = alg . inputs
 >   }
 
@@ -172,19 +172,17 @@ Eq and Ord instances ignore the textual content of the format.
 >   , total_width = ⟨project PP.total_width⟩
 >   } ⟧
 
-> fmtDefs =
+> fmtInput = algInput
 >   [ PP.body        := projE body
 >   , PP.last_line   := projE last_line
 >   , PP.height      := projE height
 >   , PP.last_width  := projE last_width
 >   , PP.total_width := projE total_width ]
 
-> fmtInput child = synAlgs child fmtDefs
-
 ***** Algebras
 ****** Format algebras
 
-> fmtBuild = algBuilder mempty fmtDesc fmtInput PP.allA
+> fmtBuild = algBuilder (inDesc []) fmtDesc fmtInput PP.allA
 
 > empty_fmt  = ⟦ ⟨empty_alg  fmtBuild⟩ () ⟧
 > text_fmt   = ⟦ ⟨text_alg   fmtBuild⟩ () ⟧
@@ -257,7 +255,7 @@ of the format-list primitives. Since we defined them as
 attributes, we must compute the AG-algebras.
 
 > fmtsInput child = synAlgs child [ fmts := askE ]
-> fmtsBuild = algBuilder (embed pw id) (project fmts) fmtsInput fmtsOptimA
+> fmtsBuild = algBuilder (inDesc [pw <-- id]) (project fmts) fmtsInput fmtsOptimA
 
 > empty_fmts  = empty_alg  fmtsBuild
 > text_fmts   = text_alg   fmtsBuild

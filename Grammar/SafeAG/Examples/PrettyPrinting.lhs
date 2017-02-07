@@ -1,4 +1,9 @@
 * Header
+Pretty printing library following the apparoach of
+"Optimal Pretty-Printing Combinators" by Pablo R. Azero and S. Doaitse Swierstra
+and "Designing and Implementing Combinator Languages"
+by S. Doaitse Swierstra1 , Pablo R. Azero Alcocer1 , and Joao Saraiva
+
 ** Lhs2TeX
 %include lhs2TeX.fmt
 %include applicative.fmt
