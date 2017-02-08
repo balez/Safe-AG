@@ -86,8 +86,6 @@ is_empty :: Child -> AR Bool
 is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
  #+END_SRC
 
-
-
 *** More caution with invalid Children
 Defining children of a production that are not in the list of orphans.
 *** Collecting errors
@@ -1346,15 +1344,17 @@ evaluation of the attribute.
 >   strictProj (c ?) (require_child c)
 > chi = (!)
 
+Note: in 8.0.2 I had to fully apply withFrozenCallStack.
+
 > par :: (HasCallStack, Typeable a) =>
 >   Attr I a -> AR a
-> par = withFrozenCallStack .
->   strictProj parM require_parent
+> par attr = withFrozenCallStack $
+>   strictProj parM require_parent attr
 
 > ter :: (HasCallStack, Typeable a) =>
 >   Attr T a -> AR a
-> ter = withFrozenCallStack .
->   strictProj terM require_terminal
+> ter attr = withFrozenCallStack $
+>   strictProj terM require_terminal attr
 
 (private) Common boiler plate to build a rule (shared by inh and syn)
 
