@@ -174,7 +174,7 @@ can implement a very flexible namespace system.
 
 **** Accessors
 
-> , context, check_aspect, missing
+> , context, missing
 
 **** Attribute projections
 
@@ -1131,13 +1131,9 @@ Note: we collect the errors from each production.
 >    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
 >    err = error "[BUG] runAspect: unexpected use of production."
 
-> context :: Aspect -> Context
-> context = snd . runAspect
-
-> check_aspect :: Aspect -> IO ()
-> check_aspect a = case fst (runAspect a) of
->   Left e -> putStr $ prettyError e
->   Right _ -> putStrLn "OK"
+> context :: Aspect -> Check Context
+> context x = fmap (const ctx) pa
+>  where (pa, ctx) = runAspect x
 
 * Error datatype
 
