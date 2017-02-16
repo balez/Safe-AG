@@ -830,12 +830,27 @@ Extract all the terminals axioms from a grammar.
 >   where
 >     ensure (Attribute a) = Constraint a p
 
+Add require constraints using the ensure constraints
+
+> require_all_I :: Context -> Set Require_I
+> require_all_I = require_all require_I ensure_I child_nt
+
+Add require constraints using the ensure constraints
+
+> require_all_S :: Context -> Set Require_S
+> require_all_S = require_all require_S ensure_S prod_nt
+
+> require_all r e m c = r c `Set.union` Set.map (fmap m) (e c)
+
 ** Checking contexts
 There is no invalid context, and no redundent
 constraints. The only thing we can do is to check whether a
 context is complete: i.e. all `require` constraints are met
 by matching `ensure` constraints, and all terminals are
 defined in the grammar.
+
+Note that every ensure constraint of the context also implies
+a require constraint.
 
 > complete ::
 >   Grammar -> Context -> Bool
@@ -845,7 +860,10 @@ defined in the grammar.
 The missing `ensure` constraints that are needed for the
 rules to be complete.  An aspect is complete with respect to
 a grammar if all the required aspects of its context are also
-ensured for all the productions.
+ensured for all the productions of the grammar.
+
+Note that every ensure constraint of the context also implies
+a require constraint.
 
 > newtype Missing = Missing (Set Ensure_I, Set Ensure_S, Set Ensure_T) deriving Show
 > nullMissing (Missing (x,y,z)) = Set.null x && Set.null y && Set.null z
@@ -853,8 +871,8 @@ ensured for all the productions.
 > missing ::
 >   Grammar -> Context -> Missing
 > missing g c = Missing
->   ( unionSets (missing_I (gram_children g) (ensure_I c)) (require_I c)
->   , unionSets (missing_S g (ensure_S c)) (require_S c)
+>   ( unionSets (missing_I (gram_children g) (ensure_I c)) (require_all_I c)
+>   , unionSets (missing_S g (ensure_S c)) (require_all_S c)
 >   , missing_T (ensure_T g) (require_T c))
 
 > missing_K :: (Ord a) =>
