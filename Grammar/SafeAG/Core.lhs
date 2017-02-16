@@ -842,7 +842,10 @@ defined in the grammar.
 > complete = nullMissing `res2` missing
 
 *** Missing rules
-The missing `ensure` constraints for the rules to be complete.
+The missing `ensure` constraints that are needed for the
+rules to be complete.  An aspect is complete with respect to
+a grammar if all the required aspects of its context are also
+ensured for all the productions.
 
 > newtype Missing = Missing (Set Ensure_I, Set Ensure_S, Set Ensure_T) deriving Show
 > nullMissing (Missing (x,y,z)) = Set.null x && Set.null y && Set.null z
