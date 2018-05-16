@@ -60,6 +60,7 @@ ghc-8.0.1
 mtl-2.2.1
 
 ** TODO
+- fix missing so that it ignores terminal attributes whose production doesn't belong to the grammar
 - better notation for InDesc (indesc [ a :<- funa, b :<- funb ])
 - keep/remove rules from aspects
 - share common definitions for AG and algebras. (there are a lot of similarities)
@@ -161,7 +162,7 @@ can implement a very flexible namespace system.
 
 *** Attributes
 
-> , Attr, attr
+> , Attr, attr, terminal
 > , Kind(..), I, S, T
 
 > , Attrs, single_attr, (|=>), empty_attrs, merge_attrs, lookup_attrs -- Monoid
@@ -465,6 +466,12 @@ different fully qualified name).
 
 > child :: Production -> Name -> NonTerminal -> Child
 > child p c n = Child (p, c) n
+
+Terminal attributes
+
+> terminal ::
+>   Typeable a => Name -> Proxy a -> Attr T a
+> terminal n p = attr n T p
 
 ** DSL for creating the grammar
 *** Datatypes for the DSL
