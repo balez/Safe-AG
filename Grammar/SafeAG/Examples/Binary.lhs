@@ -30,24 +30,53 @@ in Knuth original paper "Semantics of Context Free Languages".
 
 * Grammar
 
-> [  number   ::= integer    :@ [digits]
->              :| fraction   :@ [pos, neg]
->  , list     ::= single     :@ [single_bit]
->              :| snoc       :@ [snoc_list, snoc_bit]
->  , bit      ::= zero       :@ []
->              :| one        :@ []
->  ] = grammar $
->  [ "Number" ::= "Integer"  @: [ "digits"     ::: list ]
->              :| "Fraction" @: [ "pos"        ::: list
->                               , "neg"        ::: list ]
->  , "List"   ::= "Single"   @: [ "single_bit" ::: bit  ]
->              :| "Snoc"     @: [ "snoc_list"  ::: list
->                               , "snoc_bit"   ::: bit  ]
->  , "Bit"    ::= "Zero"     @: []
->              :| "One"      @: []
->  ]
->  where
->   x @: y = x :@ y :& nilT
+ > [  number   ::= integer    :@ [digits]
+ >              :| fraction   :@ [pos, neg]
+ >  , list     ::= single     :@ [single_bit]
+ >              :| snoc       :@ [snoc_list, snoc_bit]
+ >  , bit      ::= zero       :@ []
+ >              :| one        :@ []
+ >  ] = grammar $
+ >  [ "Number" ::= "Integer"  @: [ "digits"     ::: list ]
+ >              :| "Fraction" @: [ "pos"        ::: list
+ >                               , "neg"        ::: list ]
+ >  , "List"   ::= "Single"   @: [ "single_bit" ::: bit  ]
+ >              :| "Snoc"     @: [ "snoc_list"  ::: list
+ >                               , "snoc_bit"   ::: bit  ]
+ >  , "Bit"    ::= "Zero"     @: []
+ >              :| "One"      @: []
+ >  ]
+ >  where
+ >   x @: y = x :@ y :& nilT
+
+> number = non_terminal "number"
+> list = non_terminal "list"
+> bit = non_terminal "bit"
+ 
+ > integer :@ [digits] = prod number
+ >   "integer" ["digits" ::: list] ()
+ > fraction :@ [pos, neg] = prod number
+ >   "fraction" ["pos" ::: list, "neg" ::: list] ()
+ > single :@ [single_bit] = prod list
+ >   "single" ["single_bit" ::: bit] ()
+ > snoc :@ [snoc_list, snoc_bit] = prod list
+ >   "snoc" ["snoc_list" ::: list, "snoc_bit" ::: bit] ()
+ > zero :@ [] = prod bit "zero" [] ()
+ > one :@ [] = prod bit "one" [] ()
+
+> integer = production number "integer" [digits] ()
+> fraction = production number "fraction" [pos, neg] ()
+> single = production list "single" [single_bit] ()
+> snoc = production list "snoc" [snoc_list, snoc_bit] ()
+> zero = production bit "zero" [] ()
+> one = production bit "one" [] ()
+
+> digits = child integer "digits" list
+> pos = child fraction "pos" list
+> neg = child fraction "neg" list
+> single_bit = child single "single_bit" bit
+> snoc_list = child snoc "snoc_list" list
+> snoc_bit = child snoc "snoc_bit" bit
 
 * Proxies
 

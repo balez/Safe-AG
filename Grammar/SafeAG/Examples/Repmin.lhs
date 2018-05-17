@@ -45,46 +45,58 @@
 * Context free grammar
 
 ** Using the primitives for grammar definition
- *** Non-terminals
+*** Non-terminals
 
  > btree = non_terminal "BTree"
  > root = non_terminal "Root"
 
- *** Productions
+*** Productions
 
- > start = production root "Start" [startTree] nilT
- > fork = production btree "Fork" [leftTree, rightTree] nilT
- > leaf = production btree "Leaf" [] (val `consT` nilT)
+ > start = production root "Start" [startTree] ()
+ > fork = production btree "Fork" [leftTree, rightTree] ()
+ > leaf = production btree "Leaf" [] val
 
- *** Children
+*** Children
 
  > startTree = child start "startTree" btree
  > rightTree = child fork "rightTree" btree
  > leftTree = child fork "leftTree" btree
- > a = child fork "A" btree :: Child
- > b = child fork "B" btree :: Child
 
-** Using the DSL
+** Simultaneous of children and productions
+*** Non-terminals
+
+> btree = non_terminal "BTree"
+> root = non_terminal "Root"
+
+*** Productions
+
+> start :@ [startTree] = prod root
+>   "Start" ["startTree" ::: btree] ()
+> fork :@ [leftTree, rightTree] = prod btree
+>   "Fork" ["leftTree" ::: btree, "rightTree" ::: btree] ()
+> leaf :@ [] = prod btree "Leaf" [] val
+
+** Using the DSL -- deprecated
 
 The same grammar is written as follows:
 
-> [  root  ::= start :@ [startTree]
->  , btree ::= fork  :@ [leftTree, rightTree]
->           :| leaf  :@ []
->  ] = grammar $
->     [ "Root"  ::= "Start" :@ ["startTree" ::: btree] :& x
->     , "BTree" ::= "Fork"  :@ ["leftTree"  ::: btree
->                              ,"rightTree" ::: btree] :& x
->                :| "Leaf"  :@ [] :& val & x
->     ]
->   where x = nilT
->         (&) = consT
+ > [  root  ::= start :@ [startTree]
+ >  , btree ::= fork  :@ [leftTree, rightTree]
+ >           :| leaf  :@ []
+ >  ] = grammar $
+ >     [ "Root"  ::= "Start" :@ ["startTree" ::: btree] :& x
+ >     , "BTree" ::= "Fork"  :@ ["leftTree"  ::: btree
+ >                              ,"rightTree" ::: btree] :& x
+ >                :| "Leaf"  :@ [] :& val & x
+ >     ]
+ >   where x = nilT
+ >         (&) = consT
 
 *** A non-terminal can be extended later with new productions:
 
-> cons :@ [tailTree] =
->   productions $
->     btree ::= "Cons" :@ ["tailTree" ::: btree] :& nilT
+> -- cons :@ [tailTree] =
+> --   productions $
+> --     btree ::= "Cons" :@ ["tailTree" ::: btree] :& nilT
 
 ** Using GramDesc
 
@@ -108,7 +120,7 @@ us to run AG safely.
 >    , leaf |= [] & [val |= \case {Leaf x -> Just x; _ -> Nothing}]
 >    ]
 
-> repminI = emptyInhDesc
+> repminI = emptyInDesc
 > repminS = project ntree
 
 ** Grammar
@@ -196,7 +208,7 @@ Trying the error system
 
 *** Running
 
-> flattenI = emptyInhDesc
+> flattenI = emptyInDesc
 > flattenS = project flat
 
 > flattenAG = (\f r -> f r ()) <$> run rootDesc flattenI flattenS flattenA
