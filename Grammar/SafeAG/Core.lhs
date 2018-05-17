@@ -471,7 +471,7 @@ Terminal attributes
 
 > terminal ::
 >   Typeable a => Name -> Proxy a -> Attr T a
-> terminal n p = attr n T p
+> terminal = attr T
 
 ** DSL for creating the grammar
 *** Datatypes for the DSL
@@ -607,8 +607,8 @@ then they are different: only their names are overloaded.
 >   { attr_name :: Name
 >   , attr_kind :: Kind k}
 
-> attr :: Typeable a => Name -> Kind m -> p a -> Attr m a
-> attr n k _ = Attr n k
+> attr :: Typeable a => Kind m -> Name -> p a -> Attr m a
+> attr k n _ = Attr n k
 
 > data Attribute k where
 >   Attribute :: Typeable a => Attr k a -> Attribute k

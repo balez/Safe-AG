@@ -49,8 +49,8 @@ by S. Doaitse Swierstra1 , Pablo R. Azero Alcocer1 , and Joao Saraiva
 
 * Terminal attributes
 
-> string = attr "string" T pString
-> margin = attr "margin" T pInt
+> string = attr T "string" pString
+> margin = attr T "margin" pInt
 
 * Grammar
 
@@ -100,13 +100,12 @@ by S. Doaitse Swierstra1 , Pablo R. Azero Alcocer1 , and Joao Saraiva
 > pp = non_terminal "PP"
 > empty :@ [] = prod pp "Empty" [] ()
 > text :@ [] = prod pp "Text" [] string
-> indent :@ [indented] =
->   prod pp "Indent" ["indented" ::: pp] margin
-> beside :@ [left, right] =
->   prod pp "Beside" ["left" ::: pp, "right" ::: pp] ()
-> above :@ [upper, lower] =
->   prod pp "Above" ["upper" ::: pp, "lower" ::: pp] ()
-
+> indent :@ [indented] = prod pp
+>  "Indent" ["indented" ::: pp] margin
+> beside :@ [left, right] = prod pp
+>  "Beside" ["left" ::: pp, "right" ::: pp] ()
+> above :@ [upper, lower] = prod pp
+>  "Above" ["upper" ::: pp, "lower" ::: pp] ()
 
 * Combinators (smart constructors)
 
@@ -130,11 +129,11 @@ by S. Doaitse Swierstra1 , Pablo R. Azero Alcocer1 , and Joao Saraiva
 
 * Attributes
 
-> height = attr "height" S pInt
-> last_width = attr "last_width" S pInt
-> total_width = attr "total_width" S pInt
-> body = attr "body" S (pList pStrf)
-> last_line = attr "last_line" S pStrf
+> height      = attr S "height" pInt
+> last_width  = attr S "last_width" pInt
+> total_width = attr S "total_width" pInt
+> body        = attr S "body" (pList pStrf)
+> last_line   = attr S "last_line" pStrf
 
 * Rules
 

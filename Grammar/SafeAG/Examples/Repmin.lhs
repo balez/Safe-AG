@@ -129,11 +129,11 @@ us to run AG safely.
 
 * Attributes
 
-> val = attr "val" T pInt -- leaf value (terminal)
+> val = attr T "val" pInt -- leaf value (terminal)
 
-> gmin = attr "gmin" I pInt
-> locmin = attr "locmin" S pInt
-> ntree = attr "ntree" S pBTree
+> gmin = attr I "gmin" pInt
+> locmin = attr S "locmin" pInt
+> ntree = attr S "ntree" pBTree
 
 * Rules
 ** Repmin
@@ -177,8 +177,8 @@ Try
 
 ** List of the leaves
 
-> tailf = attr "tail" I (pList pInt)
-> flat = attr "flat" S (pList pInt)
+> tailf = attr I "tail" (pList pInt)
+> flat = attr S "flat" (pList pInt)
 
 > flattenA = flatA # tailA
 
@@ -221,7 +221,7 @@ Trying the error system
 
 ** Height
 
-> height = attr "height" S pInt
+> height = attr S "height" pInt
 > heightA = syns height
 >   [ start |- startTree!height ]
 >   # collectPs height (\hs -> 1 + max0 hs) [fork, leaf]

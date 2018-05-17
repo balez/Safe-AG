@@ -229,7 +229,7 @@ Lists.
 Let expressions. @e1@ and @e2 must be applicative. The
 variables @x1..xn@ are also applicative in the expression
 @e2@. Note that this construct will repeat the effects of
-@e1@ for each of the pattern variables @x1..xn@ used @e2@,
+@e1@ for each of the pattern variables @x1..xn@ used in @e2@,
 since each @m1@ is a pattern match over @e1@.
 
 >>> ⟪ let p1[x1...xn] = e1 in e2 ⟫

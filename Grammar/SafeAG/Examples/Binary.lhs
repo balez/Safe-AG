@@ -85,9 +85,9 @@ in Knuth original paper "Semantics of Context Free Languages".
 
 * Attributes
 
-> val   = attr "val"   S pDouble
-> len   = attr "len"   S pInt
-> scale = attr "scale" I pInt
+> val   = attr S "val"   pDouble
+> len   = attr S "len"   pInt
+> scale = attr I "scale" pInt
 
 * Semantic rules
 

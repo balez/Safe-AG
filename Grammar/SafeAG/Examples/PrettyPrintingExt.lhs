@@ -81,11 +81,16 @@ same attributes, but this is the most common case.
 ** Choice
 Introducing a choice operator and a page width attribute.
 
-> choice :@ [opt_a, opt_b] =
->   productions $
->     pp ::= "Choice" :@ ["opt_a" ::: pp, "opt_b" ::: pp] :& nilT
->
+> choice :@ [opt_a, opt_b] = prod pp
+>     "Choice" ["opt_a" ::: pp, "opt_b" ::: pp] ()
+
 > a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
+
+*** Deprecated syntax
+ > choice :@ [opt_a, opt_b] =
+ >   productions $
+ >     pp ::= "Choice" :@ ["opt_a" ::: pp, "opt_b" ::: pp] :& nilT
+
 
 *** Example
 
@@ -107,7 +112,7 @@ Introducing a choice operator and a page width attribute.
 
 ** Page width
 
-> pw = attr "page_width" I pInt
+> pw = attr I "page_width" pInt
 
 `pw' is copied everywhere. I think it is good that we are
 required to name explicitely the children where an attribute
@@ -159,7 +164,7 @@ Eq and Ord instances ignore the textual content of the format.
 > pFormat = Proxy
 **** Attribute
 
-> fmts = attr "fmts" S (pList pFormat)
+> fmts = attr S "fmts" (pList pFormat)
 
 **** AG-Algebra for Format
 ***** Conversions from format to attributes
@@ -237,17 +242,26 @@ TODO: share empty and text with fmtsA
 
 ** Splitting Combinators
 *** Grammar extension
+> hor_or_ver :@ [docs] = prod pp
+>  "Hor_or_ver" ["docs" ::: list_pp] ()
 
-> hor_or_ver :@ [docs] =
->   productions $
->     pp ::= "Hor_or_ver" :@ ["docs" ::: list_pp] :& nilT
+> list_pp = non_terminal "List_PP"
+> cons_pp :@ [head_pp, tail_pp] = prod list_pp
+>   "Cons_PP" [ "head_pp" ::: pp, "tail_pp" ::: list_pp] ()
 
-> [ list_pp ::= cons_pp :@ [head_pp, tail_pp]
->           :|  nil_pp :@ []
->  ] = grammar $
->  [ "List_PP" ::= "Cons_PP" :@ [ "head_pp" ::: pp
->                               , "tail_pp" ::: list_pp] :& nilT
->              :|  "Nil_PP" :@ [] :& nilT ]
+> nil_pp :@ [] = prod list_pp "Nil_PP" [] ()
+
+**** deprecated
+ > hor_or_ver :@ [docs] =
+ >   productions $
+ >     pp ::= "Hor_or_ver" :@ ["docs" ::: list_pp] :& nilT
+
+ > [ list_pp ::= cons_pp :@ [head_pp, tail_pp]
+ >           :|  nil_pp :@ []
+ >  ] = grammar $
+ >  [ "List_PP" ::= "Cons_PP" :@ [ "head_pp" ::: pp
+ >                               , "tail_pp" ::: list_pp] :& nilT
+ >              :|  "Nil_PP" :@ [] :& nilT ]
 
 *** Fmts algebras
 In the article implementation, `hor_or_ver' is defined in terms
@@ -286,7 +300,7 @@ To do this with attribute grammars, we define the attribute
 `fmtss' that computes a list of list of formats, essentially
 duplicating the definition of `map'.
 
-> fmtss = attr "fmtss" S (pList (pList pFormat))
+> fmtss = attr S "fmtss" (pList (pList pFormat))
 > fmtssA = syns fmtss
 >  [ nil_pp |- ⟦ [] ⟧
 >  , cons_pp |- ⟦ ⟨head_pp!fmts⟩ : ⟨tail_pp!fmtss⟩ ⟧
@@ -323,7 +337,7 @@ MapA can be defined using foldrA:
 > mapA' = foldrA [] (:)
 
 Many new combinators can be written using foldrA:
- 
+
 > sumA = foldrA 0 (+)
 > allA = foldrA False (&&)
 
