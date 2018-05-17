@@ -68,6 +68,8 @@ mtl-2.2.1
 
 > module Grammar.SafeAG
 >  ( module Grammar.SafeAG.Core
+>  , module Grammar.SafeAG.CFG
 >  , module Grammar.SafeAG.GramDesc ) where
->  import Grammar.SafeAG.Core
+>  import Grammar.SafeAG.Core hiding (production, Terminals, consT, nilT)
+>  import Grammar.SafeAG.CFG
 >  import Grammar.SafeAG.GramDesc

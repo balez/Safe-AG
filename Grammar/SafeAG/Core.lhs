@@ -156,13 +156,13 @@ can implement a very flexible namespace system.
 
 **** DSL
 
-> , GrammarSpec, NTSpec((::=)), ProdSpecs((:@),(:|))
-> , ChildSpec((:::)), ChildrenSpec, ChildTermSpec((:&))
-> , grammar, productions
+ > , GrammarSpec, NTSpec((::=)), ProdSpecs((:@),(:|))
+ > , ChildSpec((:::)), ChildrenSpec, ChildTermSpec((:&))
+ > , grammar, productions
 
 *** Attributes
 
-> , Attr, attr, terminal
+> , Attr, attr
 > , Kind(..), I, S, T
 
 > , Attrs, single_attr, (|=>), empty_attrs, merge_attrs, lookup_attrs -- Monoid

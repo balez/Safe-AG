@@ -54,21 +54,59 @@ by S. Doaitse Swierstra1 , Pablo R. Azero Alcocer1 , and Joao Saraiva
 
 * Grammar
 
-> [ pp ::= empty :@ []
->      :| text :@ []
->      :| indent :@ [indented]
->      :| beside :@ [left, right]
->      :| above :@ [upper, lower]
->  ]
->  = grammar $
->    [ "PP" ::= "Empty" :@ [] :& x
->            :| "Text"  :@ [] :& string & x
->            :| "Indent" :@ ["indented" ::: pp] :& margin & x
->            :| "Beside" :@ ["left" ::: pp, "right" ::: pp] :& x
->            :| "Above" :@ ["upper" ::: pp, "lower" ::: pp] :& x ]
->   where x = nilT
->         (&) :: Typeable a => Attr T a -> Terminals -> Terminals
->         (&) = consT
+ > [ pp ::= empty :@ []
+ >      :| text :@ []
+ >      :| indent :@ [indented]
+ >      :| beside :@ [left, right]
+ >      :| above :@ [upper, lower]
+ >  ]
+ >  = grammar $
+ >    [ "PP" ::= "Empty" :@ [] :& x
+ >            :| "Text"  :@ [] :& string & x
+ >            :| "Indent" :@ ["indented" ::: pp] :& margin & x
+ >            :| "Beside" :@ ["left" ::: pp, "right" ::: pp] :& x
+ >            :| "Above" :@ ["upper" ::: pp, "lower" ::: pp] :& x ]
+ >   where x = nilT
+ >         (&) :: Typeable a => Attr T a -> Terminals -> Terminals
+ >         (&) = consT
+
+
+
+ > [ pp ::= empty :@ []
+ >      :| text :@ []
+ >      :| indent :@ [indented]
+ >      :| beside :@ [left, right]
+ >      :| above :@ [upper, lower]
+ >  ]
+ >  = grammar $
+ >    [ "PP" ::= "Empty" :@ [] :& ()
+ >            :| "Text"  :@ [] :& string
+ >            :| "Indent" :@ ["indented" ::: pp] :& margin
+ >            :| "Beside" :@ ["left" ::: pp, "right" ::: pp] :& ()
+ >            :| "Above" :@ ["upper" ::: pp, "lower" ::: pp] :& () ]
+
+ > pp = non_terminal "PP"
+ > empty = production pp "Empty" [] ()
+ > text = production pp "Text" [] string
+ > indent = production pp "Indent" [indented] margin
+ > beside = production pp "Beside" [left, right] ()
+ > above = production pp "Above" [upper, lower] ()
+ > indented = child indent "indented" pp
+ > left = child beside "left" pp
+ > right = child beside "right" pp
+ > upper = child above "upper" pp
+ > lower = child above "lower" pp
+
+> pp = non_terminal "PP"
+> empty :@ [] = prod pp "Empty" [] ()
+> text :@ [] = prod pp "Text" [] string
+> indent :@ [indented] =
+>   prod pp "Indent" ["indented" ::: pp] margin
+> beside :@ [left, right] =
+>   prod pp "Beside" ["left" ::: pp, "right" ::: pp] ()
+> above :@ [upper, lower] =
+>   prod pp "Above" ["upper" ::: pp, "lower" ::: pp] ()
+
 
 * Combinators (smart constructors)
 
