@@ -62,7 +62,7 @@
  > rightTree = child fork "rightTree" btree
  > leftTree = child fork "leftTree" btree
 
-** Simultaneous of children and productions
+** Simultaneous definition of children and productions
 *** Non-terminals
 
 > btree = non_terminal "BTree"
@@ -70,11 +70,11 @@
 
 *** Productions
 
-> start :@ [startTree] = prod root
+> start :@ [startTree] = prodnchild root
 >   "Start" ["startTree" ::: btree] ()
-> fork :@ [leftTree, rightTree] = prod btree
+> fork :@ [leftTree, rightTree] = prodnchild btree
 >   "Fork" ["leftTree" ::: btree, "rightTree" ::: btree] ()
-> leaf :@ [] = prod btree "Leaf" [] val
+> leaf :@ [] = prodnchild btree "Leaf" [] val
 
 ** Using the DSL -- deprecated
 
@@ -97,6 +97,7 @@ The same grammar is written as follows:
 > -- cons :@ [tailTree] =
 > --   productions $
 > --     btree ::= "Cons" :@ ["tailTree" ::: btree] :& nilT
+>
 
 ** Using GramDesc
 
@@ -257,7 +258,7 @@ Trying the error system
 * Testing the general trees
 
 > runTreeAG ag attr x = case runTree ag root x mempty of
->   Left err -> print err
+>   Left err -> putStr $ prettyError $ err
 >   Right s -> print $ s ! attr
 >  where m ! x = fromJust $ lookup_attrs x m
 >        fromJust (Just x) = x
@@ -266,9 +267,9 @@ Trying the error system
 
 ** duplicated rule
 
-> ntree2A = ntreeA # syn ntree leaf (pure (Leaf 0)) # repminA
+> ntree2A = repminA # syn ntree leaf (pure (Leaf 0))
 
- * invalid child
+** invalid child
 
 > locmin2 = syn locmin start (leftTree!locmin)
 

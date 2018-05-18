@@ -16,7 +16,7 @@ takes tuples of terminal attributes.
 > module Grammar.SafeAG.CFG
 >   ( ProdChildren((:@))
 >   , ChildSpec((:::))
->   , production, prod
+>   , production, prodnchild
 >   ) where
 
 ** Module Imports
@@ -71,11 +71,11 @@ takes tuples of terminal attributes.
 
 * Semantics
 
-> prod :: TermList t =>
+> prodnchild :: TermList t =>
 >   NonTerminal -> Name -> [ChildSpec] -> t
 >   -> ProdChildren Production Children
 
-> prod nt name children ts = prod :@ cs
+> prodnchild nt name children ts = prod :@ cs
 >   where
 >     prod = production nt name cs ts
 >     cs = map child_spec children

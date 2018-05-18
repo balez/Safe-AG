@@ -98,13 +98,13 @@ by S. Doaitse Swierstra1 , Pablo R. Azero Alcocer1 , and Joao Saraiva
  > lower = child above "lower" pp
 
 > pp = non_terminal "PP"
-> empty :@ [] = prod pp "Empty" [] ()
-> text :@ [] = prod pp "Text" [] string
-> indent :@ [indented] = prod pp
+> empty :@ [] = prodnchild pp "Empty" [] ()
+> text :@ [] = prodnchild pp "Text" [] string
+> indent :@ [indented] = prodnchild pp
 >  "Indent" ["indented" ::: pp] margin
-> beside :@ [left, right] = prod pp
+> beside :@ [left, right] = prodnchild pp
 >  "Beside" ["left" ::: pp, "right" ::: pp] ()
-> above :@ [upper, lower] = prod pp
+> above :@ [upper, lower] = prodnchild pp
 >  "Above" ["upper" ::: pp, "lower" ::: pp] ()
 
 * Combinators (smart constructors)

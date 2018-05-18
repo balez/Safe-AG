@@ -48,7 +48,7 @@ same attributes, but this is the most common case.
 >  , algN  :: Production -> AR (i -> [s] -> s)
 >  }
 
-> algBuilder :: InhDesc i -> SynDesc s -> (Child -> AlgInput s) -> Aspect -> AlgBuilder i s
+> algBuilder :: InhDesc i -> SynDesc s -> (Child -> AlgInput s) -> Fragment -> AlgBuilder i s
 > algBuilder idesc sdesc input aspect =
 >   let alg inp = ⟦ \i -> ⟨algAR aspect idesc (inDesc []) inp sdesc⟩ i () ⟧
 >       algT tdesc inp = algAR aspect idesc tdesc inp sdesc
@@ -81,7 +81,7 @@ same attributes, but this is the most common case.
 ** Choice
 Introducing a choice operator and a page width attribute.
 
-> choice :@ [opt_a, opt_b] = prod pp
+> choice :@ [opt_a, opt_b] = prodnchild pp
 >     "Choice" ["opt_a" ::: pp, "opt_b" ::: pp] ()
 
 > a >^< b = node choice (opt_a |-> a \/ opt_b |-> b) mempty
@@ -242,14 +242,14 @@ TODO: share empty and text with fmtsA
 
 ** Splitting Combinators
 *** Grammar extension
-> hor_or_ver :@ [docs] = prod pp
+> hor_or_ver :@ [docs] = prodnchild pp
 >  "Hor_or_ver" ["docs" ::: list_pp] ()
 
 > list_pp = non_terminal "List_PP"
-> cons_pp :@ [head_pp, tail_pp] = prod list_pp
+> cons_pp :@ [head_pp, tail_pp] = prodnchild list_pp
 >   "Cons_PP" [ "head_pp" ::: pp, "tail_pp" ::: list_pp] ()
 
-> nil_pp :@ [] = prod list_pp "Nil_PP" [] ()
+> nil_pp :@ [] = prodnchild list_pp "Nil_PP" [] ()
 
 **** deprecated
  > hor_or_ver :@ [docs] =
@@ -351,7 +351,9 @@ amount of dependent type programming.
 **** hor_or_ver
 
 Thanks to the effectful notation, we are able to write almost
-the same definition as in the article.
+the same definition as in the article. The case expression is
+used as a trick in order to have a where clause local to the
+effectful brackets.
 
 > hor_or_verA = syns fmts
 >  [ hor_or_ver |- ⟦ case()of{_->
