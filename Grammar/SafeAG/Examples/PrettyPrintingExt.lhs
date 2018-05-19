@@ -48,7 +48,7 @@ same attributes, but this is the most common case.
 >  , algN  :: Production -> AR (i -> [s] -> s)
 >  }
 
-> algBuilder :: InhDesc i -> SynDesc s -> (Child -> AlgInput s) -> Fragment -> AlgBuilder i s
+> algBuilder :: InhDesc i -> SynDesc s -> (Child -> AlgInput s) -> Aspect -> AlgBuilder i s
 > algBuilder idesc sdesc input aspect =
 >   let alg inp = ⟦ \i -> ⟨algAR aspect idesc (inDesc []) inp sdesc⟩ i () ⟧
 >       algT tdesc inp = algAR aspect idesc tdesc inp sdesc
