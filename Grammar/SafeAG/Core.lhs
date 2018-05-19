@@ -62,10 +62,10 @@ mtl-2.2.1
 ** TODO
 - fix missing so that it ignores terminal attributes whose production doesn't belong to the grammar
 - better notation for InDesc (indesc [ a :<- funa, b :<- funb ])
-- keep/remove rules from fragments
+- keep/remove rules from aspects
 - share common definitions for AG and algebras. (there are a lot of similarities)
 - syns/inhs with support for generic rules
-- Add callstack to the reader monad for fragments (cf discussion [[callstacks]])
+- Add callstack to the reader monad for aspects (cf discussion [[callstacks]])
 - Make the algebra public (Production :-> SemProd) so that
   we can use the AG dsl to define algebras. (cf prettyprinting example)
   we need a typesafe version, with a way to describe the base functor!
@@ -80,7 +80,7 @@ mtl-2.2.1
 So far, when an error is detected because of a
 projection, the callstack will only show the immediate
 expression that called the projector, but that expression
-might be far from the site where a fragment is actually
+might be far from the site where an aspect is actually
 defined (with inh or syn), and may also be shared.
 An example in PrettyPrinting.hs is the function
  #+BEGIN_SRC haskell
@@ -89,7 +89,7 @@ is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
  #+END_SRC
 **** operators
      it seems that when an expression involves an operator,
-     like merge (#) for fragments, the expression is first
+     like merge (#) for aspects, the expression is first
      transformed in a prefix call so that the column points
      to the wrong place in the source code. For example if
      the source contains the line: "aaa # bbb", it will be
@@ -99,15 +99,15 @@ is_empty c = liftA3 zero (c!height) (c!total_width) (c!last_width)
 *** More caution with invalid Children
 Defining children of a production that are not in the list of orphans.
 *** Collecting errors
-Note that the errors are reported per rule, not per fragment,
+Note that the errors are reported per rule, not per aspect,
 which means that we stop after the first rule fails.  In
 order to collect errors we need to write a new `traverse'
-function and use it in `runFragment'.
+function and use it in `runAspect'.
 
-*** Merging fragment: duplicated rules.
+*** Merging aspect: duplicated rules.
 
 Now that merging duplicated rules is an error,
-we might want a way to remove some rules from a fragment
+we might want a way to remove some rules from an aspect
 and maybe to rename attributes.
 
 *** DONE Deletion
@@ -176,11 +176,11 @@ can implement a very flexible namespace system.
 
 > , Attrs, single_attr, (|=>), empty_attrs, merge_attrs, lookup_attrs -- Monoid
 
-*** Fragments
+*** Aspects
 **** Types
 
 > , AR -- Applicative, Functor (stands for Attribution Rule)
-> , Fragment -- Monoid
+> , Aspect -- Monoid
 
 **** Accessors
 
@@ -190,10 +190,10 @@ can implement a very flexible namespace system.
 
 > , (?),(!), chiM, chi, parM, par, terM, ter
 
-**** Fragment constructors
+**** Aspect constructors
 
 > , inh, syn
-> , emptyFragment, mergeFragment, concatFragments
+> , emptyAspect, mergeAspect, concatAspects
 > , delete_I, delete_S
 > , inhs, syns, (|-)
 > , def_S, def_I, AttrDef((:=))
@@ -426,7 +426,7 @@ The `AttrMap' field introduces the terminal data.
 
 > nilT :: Terminals
 > nilT = Terminals Set.empty
-> consT :: Typeable a => Attr T a -> Terminals -> Terminals
+> consT :: Attr T a -> Terminals -> Terminals
 > consT t (Terminals ts) =
 >   Terminals $ Set.insert (Attribute t) ts
 
@@ -612,15 +612,24 @@ then they are different: only their names are overloaded.
 
 *** Attr, Attribute
 
-> data Attr k a = Attr
->   { attr_name :: Name
->   , attr_kind :: Kind k}
+ > data Attr k a = Attr
+ >   { attr_name :: Name
+ >   , attr_kind :: Kind k}
+ 
+> data Attr k a where
+>   Attr :: Typeable a => Name -> Kind k -> Attr k a
+
+> attr_name :: Attr k a -> Name
+> attr_name (Attr n k) = n
+
+> attr_kind :: Attr k a -> Kind k
+> attr_kind (Attr n k) = k
 
 > attr :: Typeable a => Kind m -> Name -> p a -> Attr m a
 > attr k n _ = Attr n k
 
 > data Attribute k where
->   Attribute :: Typeable a => Attr k a -> Attribute k
+>   Attribute :: Attr k a -> Attribute k
 
 **** Eq, Ord, Show
 WARNING: what if two attributes with the same name and
@@ -633,13 +642,11 @@ attributes by their types.
 > lexicographic EQ c = c
 > lexicographic c _ = c
 
-> eqAttr :: (Typeable a, Typeable a') =>
->   Attr k a -> Attr k' a' -> Bool
+> eqAttr :: Attr k a -> Attr k' a' -> Bool
 > eqAttr x y =
 >   x `compareAttr` y  == EQ
 
-> compareAttr :: (Typeable a, Typeable a') =>
->   Attr k a -> Attr k' a' -> Ordering
+> compareAttr :: Attr k a -> Attr k' a' -> Ordering
 > compareAttr a@(Attr x j) b@(Attr y k) =
 >     (x `compare` y)
 >     `lexicographic` ((j `compareKind` k)
@@ -672,23 +679,23 @@ attributes.
 Note: we do an unsafe conversion, because lookupAttr will
 only be called after the AG has been typechecked at runtime.
 
-> lookupAttr :: (Typeable a) => Attr k a -> AttrMap k -> Maybe a
-> lookupAttr a m =
+> lookupAttr :: Attr k a -> AttrMap k -> Maybe a
+> lookupAttr a@Attr{} m =
 >   (\d -> fromDyn d (err d))
 >   <$> Map.lookup (Attribute a) m
 >   where
 >     err d = error $ "[BUG] lookupAttr:" ++ attr_type_err a d
 
-> attr_type_err a d = "attribute " ++ show a
+> attr_type_err a@Attr{} d = "attribute " ++ show a
 >             ++ ", expected type: " ++ show (typeRep a)
 >             ++ ", runtime type: " ++ show (dynTypeRep d)
 
-> projAttr :: Typeable a => AttrMap k -> Attr k a -> Maybe a
+> projAttr :: AttrMap k -> Attr k a -> Maybe a
 > projAttr = flip lookupAttr
-> singleAttr :: Typeable a => Attr k a -> a -> AttrMap k
-> singleAttr a x = Attribute a |-> toDyn x
+> singleAttr :: Attr k a -> a -> AttrMap k
+> singleAttr a@Attr{} x = Attribute a |-> toDyn x
 
-> delete_attr :: Typeable a => Attr k a -> AttrMap k -> AttrMap k
+> delete_attr :: Attr k a -> AttrMap k -> AttrMap k
 > delete_attr = Map.delete . Attribute
 
 **** Parent, children and terminal attributions.
@@ -768,8 +775,7 @@ used (required) and attributes that are defined (ensured).
 ** Constraints
 
 > data Constraint k t where
->   Constraint :: Typeable a =>
->     Attr k a -> t -> Constraint k t
+>   Constraint :: Attr k a -> t -> Constraint k t
 
 > constr_obj :: Constraint k t -> t
 > constr_obj (Constraint a x) = x
@@ -874,8 +880,8 @@ a require constraint.
 
 *** Missing rules
 The missing `ensure` constraints that are needed for the
-rules to be complete.  a fragment is complete with respect to
-a grammar if all the required fragments of its context are also
+rules to be complete.  An aspect is complete with respect to
+a grammar if all the required aspects of its context are also
 ensured for all the productions of the grammar.
 
 Note that every ensure constraint of the context also implies
@@ -927,39 +933,34 @@ Generate errors if the child is not valid in the current production.
 >   unless (c `elem` prod_children p)
 >     $ throwErrorA (Error_Rule_Invalid_Child c p)
 
-> cstr :: Typeable a =>
->   Attr k a -> t -> Set (Constraint k t)
+> cstr :: Attr k a -> t -> Set (Constraint k t)
 > cstr a x =
 >   Set.singleton (Constraint a x)
 
-> require_child :: (HasCallStack, Typeable a) =>
+> require_child :: HasCallStack =>
 >   Child -> Attr S a -> A ()
 > require_child c a = do
 >   assert_child c
 >   tell $ emptyCtx { require_S = cstr a (child_nt c) }
 
-> ensure_child ::
->   Typeable a => Child -> Attr I a -> A ()
+> ensure_child :: Child -> Attr I a -> A ()
 > ensure_child c a = do
 >   assert_child c
 >   tell $ emptyCtx { ensure_I = cstr a c }
 
-> require_parent ::
->   Typeable a => Attr I a -> A ()
+> require_parent :: Attr I a -> A ()
 > require_parent a = tell_parent $ \p ->
 >   emptyCtx { require_I = cstr a (prod_nt p) }
 
-> ensure_parent ::
->   Typeable a => Attr S a -> A ()
+> ensure_parent :: Attr S a -> A ()
 > ensure_parent a = tell_parent $ \p ->
 >   emptyCtx { ensure_S = cstr a p }
 
-> require_terminal ::
->   Typeable a => Attr T a -> A ()
+> require_terminal :: Attr T a -> A ()
 > require_terminal a = tell_parent $ \p ->
 >   emptyCtx { require_T = cstr a p }
 
-* Rules and Fragments
+* Rules and Aspects
 ** A and R monads
 An attribute grammar is given by a context free grammars and
 attribution rules.
@@ -987,7 +988,7 @@ may fail if some constraints are not met, like using a child
 that is not a valid child of the current production.
 And lastly, we collect constraints.
 
-> newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the fragment monad
+> newtype A a = A (ReaderT Production (ExceptT Error (Writer Context)) a) -- the aspect monad
 >   deriving (Functor, Applicative, Monad, MonadReader Production, MonadError Error, MonadWriter Context)
 
 private
@@ -1053,8 +1054,7 @@ Merging rules whose domain overlap is an error.
 `a' associated with child `c' from `rule'. It is an error
 if this definition is not provided by `rule'.
 
-> delete_rule_I :: Typeable a =>
->   Attr I a -> Child -> Rule -> Rule
+> delete_rule_I :: Attr I a -> Child -> Rule -> Rule
 > delete_rule_I a c =
 >   delete_rule Error_Rule_Delete_Missing_I lens_ensure_I
 >               delete_outattrs_I (Constraint a c)
@@ -1063,8 +1063,7 @@ if this definition is not provided by `rule'.
 `a' associated with production `p' from `rule'. It is an error
 if this definition is not provided by `rule'.
 
-> delete_rule_S :: Typeable a =>
->   Attr S a -> Production -> Rule -> Rule
+> delete_rule_S :: Attr S a -> Production -> Rule -> Rule
 > delete_rule_S a p =
 >   delete_rule Error_Rule_Delete_Missing_S lens_ensure_S
 >               delete_outattrs_S (Constraint a p)
@@ -1094,50 +1093,48 @@ if this definition is not provided by `rule'.
 >       throwErrorA $ err cstr
 >     return rout
 
-** Fragment
+** Aspect
 
-> type PureFragment = Production :-> PureRule
-> newtype Fragment = Fragment (Production :-> Rule)
-> inFragment f (Fragment x) = Fragment (f x)
-> inFragment2 f (Fragment x) (Fragment y) = Fragment (f x y)
-> emptyFragment = Fragment $ Map.empty
+> type PureAspect = Production :-> PureRule
+> newtype Aspect = Aspect (Production :-> Rule)
+> inAspect f (Aspect x) = Aspect (f x)
+> inAspect2 f (Aspect x) (Aspect y) = Aspect (f x y)
+> emptyAspect = Aspect $ Map.empty
 
-> mergeFragment, (#) :: HasCallStack => Fragment -> Fragment -> Fragment
-> mergeFragment = withFrozenCallStack $ inFragment2 $ Map.unionWith mergeRule
-> (#) = withFrozenCallStack mergeFragment
+> mergeAspect, (#) :: HasCallStack => Aspect -> Aspect -> Aspect
+> mergeAspect = withFrozenCallStack $ inAspect2 $ Map.unionWith mergeRule
+> (#) = withFrozenCallStack mergeAspect
 
-> instance Monoid Fragment where
->   mempty = emptyFragment
->   mappend = mergeFragment
+> instance Monoid Aspect where
+>   mempty = emptyAspect
+>   mappend = mergeAspect
 
-> concatFragments :: [Fragment] -> Fragment
-> concatFragments = mconcat
+> concatAspects :: [Aspect] -> Aspect
+> concatAspects = mconcat
 
-`delete_I a c fragment' removes the definition of the attribute
-`a' associated with child `c' from `fragment'. It is an error
-if this definition is not provided by `fragment'.
+`delete_I a c aspect' removes the definition of the attribute
+`a' associated with child `c' from `aspect'. It is an error
+if this definition is not provided by `aspect'.
 
-> delete_I :: Typeable a =>
->   Attr I a -> Child -> Fragment -> Fragment
-> delete_I a c = inFragment $
+> delete_I :: Attr I a -> Child -> Aspect -> Aspect
+> delete_I a c = inAspect $
 >   Map.adjust (delete_rule_I a c) (child_prod c)
 
-`delete_S a p fragment' removes the definition of the attribute
-`a' associated with production `p' from `fragment'. It is an error
-if this definition is not provided by `fragment'.
+`delete_S a p aspect' removes the definition of the attribute
+`a' associated with production `p' from `aspect'. It is an error
+if this definition is not provided by `aspect'.
 
-> delete_S :: Typeable a =>
->   Attr S a -> Production -> Fragment -> Fragment
-> delete_S a p = inFragment $
+> delete_S :: Attr S a -> Production -> Aspect -> Aspect
+> delete_S a p = inAspect $
 >   Map.adjust (delete_rule_S a p) p
 
 TODO:
-< proj_I :: Attr I a -> Child -> Fragment -> Fragment
-< proj_S :: Attr S a -> Production -> Fragment -> Fragment
+< proj_I :: Attr I a -> Child -> Aspect -> Aspect
+< proj_S :: Attr S a -> Production -> Aspect -> Aspect
 
-< keep :: Fragment -> [RuleName] -> Fragment
-< remove :: Fragment -> [RuleName] -> Fragment
-< keepAttrs :: Fragment -> Attr I
+< keep :: Aspect -> [RuleName] -> Aspect
+< remove :: Aspect -> [RuleName] -> Aspect
+< keepAttrs :: Aspect -> Attr I
 
 > data SomeAttr where
 >   SomeAttr :: Attr k a -> SomeAttr
@@ -1149,14 +1146,14 @@ TODO:
 
 > data RuleName = IRule IRuleName | SRule SRuleName
 
-`runFragment` is private. Note: the production in the readerT
+`runAspect` is private. Note: the production in the readerT
 is not used for rules.  Because when we build rules we always
 override the production with a call to `local' (see the code
 of `inh' and `syn').
 Note: we collect the errors from each production.
 
-> runFragment :: Fragment -> (Check PureFragment, Context)
-> runFragment (Fragment asp) = (asp_err, ctx)
+> runAspect :: Aspect -> (Check PureAspect, Context)
+> runAspect (Aspect asp) = (asp_err, ctx)
 >  where
 >    errors_ag = fst $ runA (collect_errors $ runAR <$> asp) err
 >    (asp_ag, ctx) = runA asp_a err
@@ -1165,12 +1162,12 @@ Note: we collect the errors from each production.
 >      if null errors then asp_ag
 >      else throwErrorCheck $ Errors errors
 >    asp_ar = traverse runAR asp -- A (Production :-> R OutAttrs)
->    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureFragment
->    err = error "[BUG] runFragment: unexpected use of production."
+>    asp_a  = liftM (Map.map (runReader  . runR)) asp_ar -- A PureAspect
+>    err = error "[BUG] runAspect: unexpected use of production."
 
-> context :: Fragment -> Check Context
+> context :: Aspect -> Check Context
 > context x = fmap (const ctx) pa
->  where (pa, ctx) = runFragment x
+>  where (pa, ctx) = runAspect x
 
 * Error datatype
 
@@ -1319,7 +1316,7 @@ I should define an Ord instance for CallStacks.
 > group_errors = foldr cons Map.empty
 >  where cons (Error (e, c)) = Map.insertWith mappend (prettyCallStack c) [e]
 
-* Rules and Fragment primitives
+* Rules and Aspect primitives
 ** Attribute projections
 Rules are defined in an applicative `AR', that comes with
 primitives to project attributes from either the parent, a
@@ -1332,7 +1329,7 @@ Maybe monad at runtime.
 
 Children attribute
 
-> (?), chiM ::  (HasCallStack, Typeable a) =>
+> (?), chiM ::  HasCallStack =>
 >   Child -> Attr S a -> AR (Maybe a)
 > (?) c a = withFrozenCallStack $ AR $ return $ do
 >   cs <- asks childrenAttrs
@@ -1342,7 +1339,7 @@ Children attribute
 
 Parent attribute
 
-> parM :: (HasCallStack, Typeable a) =>
+> parM :: HasCallStack =>
 >   Attr I a -> AR (Maybe a)
 > parM a = withFrozenCallStack $ AR $ return $ do
 >  lookupAttr a <$> asks parentAttrs
@@ -1350,7 +1347,7 @@ Parent attribute
 
 Terminal attribute
 
-> terM :: (HasCallStack, Typeable a) =>
+> terM :: HasCallStack =>
 >   Attr T a -> AR (Maybe a)
 > terM a = withFrozenCallStack $ AR $ return $ do
 >   lookupAttr a <$> asks terminalAttrs
@@ -1359,7 +1356,7 @@ The strict versions are all instances of the following
 function, which adds a constraint before safely forcing the
 evaluation of the attribute.
 
-> strictProj :: (HasCallStack, Typeable a) =>
+> strictProj :: HasCallStack =>
 >   (Attr k a -> AR (Maybe a)) ->   -- the maybe operation
 >   (Attr k a -> A ()) ->           -- the constraint
 >   Attr k a -> AR a
@@ -1371,7 +1368,7 @@ evaluation of the attribute.
 >     err = error $ "[BUG] strictProj: undefined attribute " ++ show a
 
 > infix 9 !
-> (!), chi :: (HasCallStack, Typeable a) =>
+> (!), chi :: HasCallStack =>
 >   Child -> Attr S a -> AR a
 > (!) c = withFrozenCallStack $
 >   strictProj (c ?) (require_child c)
@@ -1379,46 +1376,46 @@ evaluation of the attribute.
 
 Note: in 8.0.2 I had to fully apply withFrozenCallStack.
 
-> par :: (HasCallStack, Typeable a) =>
+> par :: HasCallStack =>
 >   Attr I a -> AR a
 > par attr = withFrozenCallStack $
 >   strictProj parM require_parent attr
 
-> ter :: (HasCallStack, Typeable a) =>
+> ter :: HasCallStack =>
 >   Attr T a -> AR a
 > ter attr = withFrozenCallStack $
 >   strictProj terM require_terminal attr
 
 (private) Common boiler plate to build a rule (shared by inh and syn)
 
-> build_fragment :: Typeable a =>
+> build_aspect ::
 >   Attr k a ->
 >   Production ->
 >   A () ->
 >   (AttrMap k -> OutAttrs) ->
->   AR a -> Fragment
-> build_fragment attr production constraint fam rule =
->   Fragment $ Map.singleton production $ AR $ do
+>   AR a -> Aspect
+> build_aspect attr production constraint fam rule =
+>   Aspect $ Map.singleton production $ AR $ do
 >     rule' <- local (const production) (constraint >> runAR rule)
 >     return $ fam' <$> rule'
 >   where
 >     fam' x = fam $ singleAttr attr x
 
-** Fragment constructors
+** Aspect constructors
 
 Inherited attributes are defined for a specific child of a
 production.  The production is determined by the Child.
 
-> inh :: (HasCallStack, Typeable a) =>
->   Attr I a -> Child -> AR a -> Fragment
-> inh a c = build_fragment a (child_prod c) (ensure_child c a)
+> inh :: HasCallStack =>
+>   Attr I a -> Child -> AR a -> Aspect
+> inh a c = build_aspect a (child_prod c) (ensure_child c a)
 >   $ \attrs -> (emptyAttrs, c |-> attrs)
 
 Synthesized attributes are defined for the parent of a production.
 
-> syn :: (HasCallStack, Typeable a) =>
->   Attr S a -> Production -> AR a -> Fragment
-> syn a p = build_fragment a p (ensure_parent a)
+> syn :: HasCallStack =>
+>   Attr S a -> Production -> AR a -> Aspect
+> syn a p = build_aspect a p (ensure_parent a)
 >   $ \attrs -> (attrs, emptyChildrenAttrs)
 
 ** Derived combinators
@@ -1428,24 +1425,24 @@ Nicer pairs for association lists [(a,b)]
 > infixr 2 |-
 > (|-) = (,)
 
-> inhs :: Typeable a => Attr I a -> [(Child, AR a)] -> Fragment
-> inhs a = foldl (\rs (c,r) -> rs # inh a c r) emptyFragment
+> inhs :: Attr I a -> [(Child, AR a)] -> Aspect
+> inhs a = foldl (\rs (c,r) -> rs # inh a c r) emptyAspect
 
-> syns :: Typeable a => Attr S a -> [(Production, AR a)] -> Fragment
-> syns a = foldl (\rs (p,r) -> rs # syn a p r) emptyFragment
+> syns :: Attr S a -> [(Production, AR a)] -> Aspect
+> syns a = foldl (\rs (p,r) -> rs # syn a p r) emptyAspect
 
 *** One production, multiple attributes
 
 > infix 2 :=
 
 > data AttrDef f k where
->   (:=) :: Typeable a => Attr k a -> f a -> AttrDef f k
+>   (:=) :: Attr k a -> f a -> AttrDef f k
 
-> def_S :: Production -> [AttrDef AR S] -> Fragment
-> def_S p = foldl (\rs (a := r) -> rs # syn a p r) emptyFragment
+> def_S :: Production -> [AttrDef AR S] -> Aspect
+> def_S p = foldl (\rs (a := r) -> rs # syn a p r) emptyAspect
 
-> def_I :: Child -> [AttrDef AR I] -> Fragment
-> def_I c = foldl (\rs (a := r) -> rs # inh a c r) emptyFragment
+> def_I :: Child -> [AttrDef AR I] -> Aspect
+> def_I c = foldl (\rs (a := r) -> rs # inh a c r) emptyAspect
 
 * Generic rules
 
@@ -1456,45 +1453,45 @@ primitives and could be defined by the user.
 
 Sometimes we want to apply a rule on the same attribute many times.
 
-> many1 f x   = concatFragments . map (f x)
-> many2 f x y = concatFragments . map (f x y)
+> many1 f x   = concatAspects . map (f x)
+> many2 f x y = concatAspects . map (f x y)
 
 ** Copy
 `copy' copies the attribute the parent to the child.
 
-> copy :: Typeable a => Attr I a -> Child -> Fragment
+> copy :: Attr I a -> Child -> Aspect
 > copy a c = inh a c (par a)
 
 `copyN' takes a list of children for which the attribute is
 to be copied.
 
-> copyN :: Typeable a => Attr I a -> Children -> Fragment
+> copyN :: Attr I a -> Children -> Aspect
 > copyN = many1 copy
 
 `copyP' copies the inherited attribute of the parent to all
 the children that have the same non-terminal.
 
-> copyP :: Typeable a => Attr I a -> Production -> Fragment
+> copyP :: Attr I a -> Production -> Aspect
 > copyP a p = copyN a cs
 >   where cs = [ c | c <- prod_children p
 >                  , child_nt c == prod_nt p ]
 
 `copyPs' implements the copy rule for a list of production.
 
-> copyPs :: Typeable a => Attr I a -> [Production] -> Fragment
-> copyPs a = foldr (\p r -> copyP a p # r) emptyFragment
+> copyPs :: Attr I a -> [Production] -> Aspect
+> copyPs a = foldr (\p r -> copyP a p # r) emptyAspect
 
 `copyG' implements the copy rule for all the productions of a
 non-terminal in a given grammar.
 
-> copyG :: Typeable a => Attr I a -> NonTerminal -> Grammar -> Fragment
+> copyG :: Attr I a -> NonTerminal -> Grammar -> Aspect
 > copyG a n g = copyPs a [p | p <- Set.toList g, prod_nt p == n]
 
 ** Collect
 `collect' applies a function to the attributes of a list of children
 to compute a synthesized attribute.
 
-> collect :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Children -> Fragment
+> collect :: Attr S a -> ([a] -> a) -> Production -> Children -> Aspect
 > collect a reduce p cs = syn a p $
 >   reduce <$> traverse (!a) cs
 
@@ -1502,22 +1499,22 @@ to compute a synthesized attribute.
 all children that implement it. It doesn't add any require
 constraints.
 
-> collectAll :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Fragment
+> collectAll :: Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectAll a reduce p = syn a p $
 >   (reduce . filterJust) <$> traverse (?a) (prod_children p)
 
-> collectAlls :: Typeable a => Attr S a -> ([a] -> a) -> [Production] -> Fragment
+> collectAlls :: Attr S a -> ([a] -> a) -> [Production] -> Aspect
 > collectAlls = many2 collectAll
 
 `collectP' applies the function to the attributes of all the
 children that have the same non-terminal as the parent.
 By hypothesis, we know that the attribute will be defined for them.
 
-> collectP :: Typeable a => Attr S a -> ([a] -> a) -> Production -> Fragment
+> collectP :: Attr S a -> ([a] -> a) -> Production -> Aspect
 > collectP a reduce p = syn a p $ reduce <$> traverse (!a) cs
 >  where cs = [ c | c <- prod_children p, child_nt c == prod_nt p ]
 
-> collectPs :: Typeable a => Attr S a -> ([a] -> a) -> [Production] -> Fragment
+> collectPs :: Attr S a -> ([a] -> a) -> [Production] -> Aspect
 > collectPs = many2 collectP
 
 ** Chain
@@ -1531,7 +1528,7 @@ parent. So, this rule defines the inherited attribute for all
 the children and the synthesized attribute for the parent.
 
 > chain :: Typeable a =>
->   Attr I a -> Attr S a -> Production -> Children -> Fragment
+>   Attr I a -> Attr S a -> Production -> Children -> Aspect
 > chain i s p cs =
 >   (inhs i $ zip cs $ par i : ((!s) <$> init cs))
 >   # syn s p (last cs ! s)
@@ -1540,7 +1537,7 @@ Applies the chain rule the children of a production having
 the given (non-terminal).
 
 > chainN :: Typeable a =>
->   Attr I a -> Attr S a -> Production -> [NonTerminal] -> Fragment
+>   Attr I a -> Attr S a -> Production -> [NonTerminal] -> Aspect
 > chainN i s p ns = chain i s p cs
 >   where cs = [ c | c <- prod_children p, child_nt c `elem` ns]
 
@@ -1548,7 +1545,7 @@ Applies the chain rule the children of a production having
 the same non-terminal as the parent.
 
 > chainP :: Typeable a =>
->   Attr I a -> Attr S a -> Production -> Fragment
+>   Attr I a -> Attr S a -> Production -> Aspect
 > chainP i s p = chainN i s p [prod_nt p]
 
 * Running the grammar
@@ -1582,7 +1579,7 @@ OutDesc is abstract
 >   OutDesc f <*> OutDesc x =
 >     OutDesc $ liftM2 (<*>) f x
 
-> project :: Typeable a => Attr k a -> OutDesc k a
+> project :: Attr k a -> OutDesc k a
 > project a = OutDesc $ do
 >   tell (Set.singleton (Attribute a))
 >   return $ fromMaybe err . lookupAttr a
@@ -1949,12 +1946,12 @@ We check that the children have unique names for each production.
 Check the whole AG.
 
 > check ::
->   GramDesc t -> InhDesc i -> SynDesc s -> Fragment -> Check (NonTerminal, PureFragment, Coalg)
+>   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> Check (NonTerminal, PureAspect, Coalg)
 > check g i s r = do
 >   (root, grammar, gmap) <- check_gramDesc g
 >   check_grammar grammar
->   let (check_fragment, ctx) = runFragment r
->   pure_asp <- check_fragment
+>   let (check_aspect, ctx) = runAspect r
+>   pure_asp <- check_aspect
 >   check_missing (missing grammar ctx)
 >   check_inh_unique i
 >   check_inh_required i root (require_I ctx)
@@ -1962,7 +1959,7 @@ Check the whole AG.
 >   return (root, pure_asp, coalg gmap)
 
 > run :: Typeable t =>
->   GramDesc t -> InhDesc i -> SynDesc s -> Fragment -> Check (t -> i -> s)
+>   GramDesc t -> InhDesc i -> SynDesc s -> Aspect -> Check (t -> i -> s)
 > run g i s a = do
 >   (root, pure_asp, coalg) <- check g i s a
 >   let sem = sem_coalg (Map.map sem_prod pure_asp) coalg root . toDynP g
@@ -2027,7 +2024,7 @@ Abstract type for attributions.
 > lookup_attrs a = lookupAttr a . fromAttrs
 
 > infix 2 |=>
-> single_attr, (|=>) :: Typeable a => Attr k a -> a -> Attrs k
+> single_attr, (|=>) :: Attr k a -> a -> Attrs k
 > single_attr a x = Attrs $ singleAttr a x
 > (|=>) = single_attr
 > empty_attrs :: Attrs k
@@ -2040,12 +2037,12 @@ Abstract type for attributions.
 > node p cs = Node p cs . fromAttrs
 
 > runTree ::
->   Fragment -> NonTerminal -> InputTree -> Attrs I -> Check (Attrs S)
-> runTree fragment root tree (Attrs inhattrs) = do
+>   Aspect -> NonTerminal -> InputTree -> Attrs I -> Check (Attrs S)
+> runTree aspect root tree (Attrs inhattrs) = do
 >   gram <- tree_gram tree
 >   check_grammar gram
->   let (check_fragment, ctx) = runFragment fragment
->   pure_asp <- check_fragment
+>   let (check_aspect, ctx) = runAspect aspect
+>   pure_asp <- check_aspect
 >   check_missing (missing gram ctx)
 >   check_attrs Error_RunTree_Missing (Map.keysSet inhattrs) root (require_I ctx)
 >   return $ Attrs $ unsafe_run pure_asp tree inhattrs
@@ -2067,7 +2064,7 @@ all the children of the current production.
 >     syn_children = forest `applyMap` extended_inh
 >     extended_inh = Map.union inh_children (constantMap emptyAttrs (Map.keysSet forest))
 
-> unsafe_run :: PureFragment -> InputTree -> SemTree
+> unsafe_run :: PureAspect -> InputTree -> SemTree
 > unsafe_run = sem_tree . Map.map sem_prod
 
 `sem_tree' computes the iteration of the algebra on a tree.
@@ -2116,11 +2113,11 @@ information about them: which inherited attributes are
 required and which synthesized attributes are ensured for
 each child, all of this in the context of a production.
 
-The approach is very similar to the one for defining fragments
+The approach is very similar to the one for defining aspects
 and gathering constraints, with `AlgM' playing the role of
 the `A' monad, `SemTreeM' playing the role of the `R' monad,
 `AlgRule' the role of `AR' monoid, and `AlgInput' the role of
-`Fragment'. TODO: find better names.
+`Aspect'. TODO: find better names.
 
 > newtype AlgM a =
 >  AlgM {runAlgM :: ReaderT Child (ExceptT Error (Writer AlgCtx)) a}
@@ -2157,7 +2154,7 @@ primitives to build values.
 > instance Functor (AlgRule e) where
 >   fmap f x = pure f <*> x
 
-> projI :: Typeable a => Attr I a -> AlgRule e a
+> projI :: Attr I a -> AlgRule e a
 > projI a = AlgRule $ do
 >  c <- ask
 >  tell $ emptyAlgCtx { algCtx_I = cstr a (child_nt c) }
@@ -2172,7 +2169,7 @@ primitives to build values.
 
 > askE = projE id
 
-> synAlg :: Typeable a => Child -> Attr S a -> AlgRule e a -> AlgInput e
+> synAlg :: Child -> Attr S a -> AlgRule e a -> AlgInput e
 > synAlg c a r =
 >   AlgInput $ return (child_prod c, c |-> singleAttr a <$> r')
 >  where
@@ -2228,17 +2225,17 @@ the same production.
 > checkAR = either err pure
 >  where err e = AR (throwError e)
 
-> alg :: Fragment -> InDesc I i -> InDesc T t -> AlgInput e -> OutDesc S s -> Check (i -> t -> e -> s)
+> alg :: Aspect -> InDesc I i -> InDesc T t -> AlgInput e -> OutDesc S s -> Check (i -> t -> e -> s)
 > alg asp idesc tdesc input sdesc = undefined
 >   -- TODO: checks
 
-> algAttr :: Fragment -> Attrs I -> Attrs T -> AlgInput e -> Check (e -> Attrs S)
+> algAttr :: Aspect -> Attrs I -> Attrs T -> AlgInput e -> Check (e -> Attrs S)
 > algAttr = undefined
 
- > algAttr fragment input terminals inherited = do
+ > algAttr aspect input terminals inherited = do
  >   (p, rs) <- check_input input
- >   let (check_fragment, ctx) = runFragment fragment
- >   pure_asp <- check_fragment
+ >   let (check_aspect, ctx) = runAspect aspect
+ >   pure_asp <- check_aspect
  >   -- check_missing_alg (missing_alg ctx TODO)
  >
 
