@@ -916,7 +916,7 @@ a require constraint.
 > missing g c = Missing
 >   ( unionSets (missing_I (gram_children g) (ensure_I c)) (require_all_I c)
 >   , unionSets (missing_S g (ensure_S c)) (require_all_S c)
->   , missing_T (ensure_T g) (require_T c))
+>   , missing_T g (require_T c))
 
 > missing_K :: (Ord a) =>
 >   (a -> NonTerminal) -> Set a -> Set (Constraint k a) -> Constraint k NonTerminal -> Set (Constraint k a)
@@ -934,10 +934,14 @@ a require constraint.
 
 This case is different from S, and I since the terminal
 attributes are not associated with non-terminals but with
-productions.
+productions. We also remove the constraints that mention
+productions that are not in the grammar.
 
-> missing_T :: Set Ensure_T -> Set Require_T -> Set Ensure_T
-> missing_T = flip Set.difference
+> missing_T :: Grammar -> Set Require_T -> Set Ensure_T
+> missing_T g required =
+>    Set.difference (Set.filter is_prod required) (ensure_T g)
+>  where
+>    is_prod r = constr_obj r `Set.member` g
 
 ** Context primitives
 The primitive ways to update the context are through the
@@ -2027,7 +2031,7 @@ the tree is compatible with the grammar.
 > check_tree_grammar :: InputTree -> IO ()
 > check_tree_grammar t = case tree_grammar t of
 >   Left err -> putStr $ pretty_error err
->   Right g  -> putStrLn ("Grammar" ++ show_list (Set.toList g))
+>   Right g  -> putStrLn ("Grammar: " ++ show_list (Set.toList g))
 
 *** Checking the attributes
 

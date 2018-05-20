@@ -7,14 +7,15 @@ takes tuples of terminal attributes.
 ** GHC Options
 
 > {-# LANGUAGE
->   FlexibleInstances
+>     FlexibleInstances
+>   , TypeOperators
 > #-}
 
 
 ** Module Exports
 
 > module Grammar.SafeAG.CFG
->   ( ProdChildren((:@))
+>   ( Prodnchild((:@))
 >   , ChildSpec((:::))
 >   , production, prodnchild
 >   ) where
@@ -65,15 +66,14 @@ takes tuples of terminal attributes.
 > infix 3 :@
 > infix 1 :::
 
-> data ProdChildren p c = p :@ c
+> data Prodnchild = Production :@ Children
 
 > data ChildSpec = Name ::: NonTerminal
 
 * Semantics
 
 > prodnchild :: TermList t =>
->   NonTerminal -> Name -> [ChildSpec] -> t
->   -> ProdChildren Production Children
+>   NonTerminal -> Name -> [ChildSpec] -> t -> Prodnchild
 
 > prodnchild nt name children ts = prod :@ cs
 >   where
