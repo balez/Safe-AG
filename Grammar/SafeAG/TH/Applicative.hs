@@ -1,14 +1,13 @@
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, LambdaCase, GeneralizedNewtypeDeriving #-}
 
-{-| @$(applicative [|...|])@ is an alternative to idiom
-brackets, for writing expressions over an @Applicative@
-functor.  The impure values inside the expression must be put
-inside special brackets. Currently the syntax is to use apply
-an underscore to tag the impure values:
+{-| @$(applicative [|...|])@ is an alternative to idiom brackets, for
+writing expressions over an @Applicative@ functor.  The impure values
+inside the expression must be put inside special brackets. Currently
+the syntax is to use an underscore to tag the impure values:
 
 @
-$(applicative [| _(Just 3) + _(Just 2) |] ----> Just 5
-$(applicative [| map sum (_(Just [3,2])) |] ---> Just 5
+$(applicative [| _(Just 3) + _(Just 2) |] ---> Just 5
+$(applicative [| filter even (_(Just [1..5])) |] ---> Just [2,4]
 @
 
 For more readability, we suggest using unicode brackets and
@@ -19,20 +18,20 @@ replacing them with a preprocessor.
 The previous example now reads:
 
 @
-⟦ ⟨Just 3⟩ + ⟨Just 2⟩ ⟧----> Just 5
-⟦ map sum ⟨Just [3,2]⟩ ⟧ ---> Just 5
+⟦ ⟨Just 3⟩ + ⟨Just 2⟩ ⟧ ---> Just 5
+⟦ filter even ⟨Just [1..5]⟩ ⟧ ---> Just [2,4]
 @
 
-The syntax supports let expressions that can bind either pure
-or impure values:
+The syntax supports let expressions that can bind either pure or
+impure values:
 
 @
 ⟦ let x = ⟨foo⟩ in ⟨bar⟩ + x ⟧ == ⟦ ⟨bar⟩ + ⟨foo⟩ ⟧
 ⟦ let x = baz in ⟨bar⟩ + x ⟧ == ⟦ ⟨bar⟩ + baz ⟧
 @
 
-This notation pulls out all the ⟨e⟩ from an expression and
-rewrite it as an application, so that:
+This notation pulls out all the ⟨e⟩ from an expression and rewrite it
+as an application, so that:
 
 @
 ⟦ e[⟨e1⟩ .., ⟨en⟩] ⟧
@@ -41,16 +40,19 @@ rewrite it as an application, so that:
 where @⟨e1⟩..⟨en⟩@ occur in the order pre-order traversal of
 the expression @e@.
 
-All valid Haskell expressions can be used inside the
-applicative brackets ⟦..⟧. The only restriction is that
-inside a effectful bracket ⟨..⟩ only free variables are allowed, that is variables
-that are defined outside the applicative brackets ⟦..⟧.
-As a corollary, if the result of a effectful expression (enclosed in ⟨..⟩)
-is bound to a variable (by a let, case, lambda, lambdaCase,
-or where) then that variable cannot be used inside another
-effectful expression (enclosed in ⟨..⟩).
-Another corollary is that if a local function is defined inside applicative brackets ⟦..⟧,
-then its parameters may not be used inside effectful brackets ⟨..⟩.
+All valid Haskell expressions can be used inside the applicative
+brackets ⟦..⟧. The only restriction is that inside a effectful bracket
+⟨..⟩ only free variables are allowed, i.e. variables that are
+defined outside the applicative brackets ⟦..⟧.
+
+As a corollary, if the result of a effectful expression (enclosed in
+⟨..⟩) is bound to a variable (by a let, case, lambda, lambdaCase, or
+where) then that variable cannot be used inside another effectful
+expression (enclosed in ⟨..⟩).
+
+Another corollary is that if a local function is defined inside
+applicative brackets ⟦..⟧, then its parameters may not be used inside
+effectful brackets ⟨..⟩.
 
 NOTE: the infix brackets cannot be used around effectful expressions:
 
@@ -62,6 +64,7 @@ TODO: use the original expression to display a nice error message.
 
 module Grammar.SafeAG.TH.Applicative (applicative) where
 import Prelude hiding (exp)
+import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -96,14 +99,16 @@ nil = list []
 x .: xs = list [x] ++. xs
 cons = (.:)
 
+instance Semigroup (ListF a) where
+  (<>) = (++.)
 instance Monoid (ListF a) where
   mempty = nil
-  mappend = (++.)
 
 --------------------------------------------------
 applicative qe = do
-  (e, xs, as) <- runPullQ . exp =<< qe
-  let f = if null xs then e else LamE (VarP <$> xs) e
+  (e, es) <- runPullQ . exp =<< qe
+  let (xs, as) = unzip es
+      f = if null es then e else LamE (VarP <$> xs) e
   return $ liftE f as
 
 -- | liftE f [e1..en] == pure f <*> e1 <*> ... <*> en
@@ -134,14 +139,12 @@ type FVars = Set Name -- free variables
 newtype PullQ a = PullQ {fromPullQ :: ReaderT Env (ExceptT Error (WriterT (ListF (Name, Exp)) Q)) a}
   deriving (Functor, Applicative, Monad, MonadReader Env, MonadError Error, MonadWriter (ListF (Name, Exp)))
 
-runPullQ :: PullQ a -> Q (a, [Name], [Exp])
+runPullQ :: PullQ a -> Q (a, [(Name, Exp)])
 runPullQ (PullQ f) = do
   (e', es) <- runWriterT (runExceptT (runReaderT f Map.empty))
   case e' of
     Left msg -> fail $ "Applicative notation: " ++ show msg
-    Right e -> do
-      let (xs, as) = unzip (toList es)
-      return (e, xs, as)
+    Right e -> return (e, toList es)
 
 liftQ :: Q a -> PullQ a
 liftQ q = PullQ . lift .lift . lift $ q
@@ -158,12 +161,12 @@ check e = do
       ++ bound_msg (inverseMap (restrictKeys m bad))
       ++ "\nThe variables bound inside the applicative brackets must not occur inside an effectful expression.\n"
 
-bound_msg = Map.foldWithKey msg ""
+bound_msg = Map.foldrWithKey msg ""
   where
     msg b vs s = ppr_set vs ++ " bound in the " ++ show b ++ "\n" ++ s
 
 inverseMap :: (Ord k, Ord a) => Map k a -> Map a (Set k)
-inverseMap = Map.foldWithKey ins Map.empty
+inverseMap = Map.foldrWithKey ins Map.empty
   where ins k x = Map.insertWith (\/) x (single k)
 
 ppr_set s = concat $ intersperse ", " $ pprint <$> Set.toList s
@@ -201,6 +204,8 @@ exp :: Exp -> PullQ Exp
 exp e0 = case e0 of
   AppE (UnboundVarE n) e | nameBase n == "_" -> VarE <$> bind e
   AppE f e -> AppE <$> exp f <*> exp e
+  AppTypeE e t -> apptype <$> exp e
+    where apptype e = AppTypeE e t
   InfixE (Just l) o (Just r) -> inf <$> exp o <*> exp l <*> exp r
     where inf o l r = InfixE (Just l) o (Just r)
   InfixE Nothing o (Just r) -> inf <$> exp o <*> exp r
@@ -217,12 +222,13 @@ exp e0 = case e0 of
   CaseE e ms      ->  CaseE <$> exp e <*> matches ms
   LamCaseE ms     ->  LamCaseE <$> matches ms
   CondE c e t     ->  CondE <$> exp c <*> exp e <*> exp t
-  TupE es         ->  TupE <$> exps es
-  UnboxedTupE es  ->  UnboxedTupE <$> exps es
+  TupE mes         ->  TupE <$> mexps mes
+  UnboxedTupE mes  ->  UnboxedTupE <$> mexps mes
   ListE es        ->  ListE <$> exps es
   ParensE e       ->  ParensE <$> exp e
   MultiIfE cs     ->  MultiIfE <$> guardedexps cs
-  DoE ss          ->  DoE <$> stmts ss
+  DoE mm ss       ->  DoE mm <$> stmts ss
+  MDoE mm ss      ->  MDoE mm <$> stmts ss
   CompE ss        ->  CompE <$> stmts ss
   ArithSeqE r     ->  ArithSeqE <$> range r
   SigE e t        ->  (\e -> SigE e t) <$> exp e
@@ -234,6 +240,7 @@ exp e0 = case e0 of
  where b0 = ExpBd e0
 
 exps = traverse exp
+mexps = traverse (traverse exp)
 
 dec :: Dec -> PullQ Dec
 dec d = case d of
@@ -256,6 +263,7 @@ stmt = \case
   LetS ds -> LetS <$> decs ds
   NoBindS e -> NoBindS <$> exp e
   ParS sss -> ParS <$> traverse stmts sss
+  RecS ss  -> RecS <$> stmts ss
 stmts = traverse stmt
 
 range :: Range -> PullQ Range
@@ -293,40 +301,50 @@ single = Set.singleton
 
 free :: Exp -> FVars
 free = \case
-  InfixE (Just l) o (Just r) -> frees [l,o,r]
-  InfixE Nothing o (Just r)  -> frees [o,r]
-  InfixE (Just l) o Nothing  -> frees [l,o]
-  InfixE Nothing o Nothing   -> free o
-  UInfixE l o r              -> frees [l,o,r]
-  AppE f e       -> frees [f,e]
-  LamE ps e      -> free e \\ pat_bounds ps
-  LetE ds e      -> free e \\ dec_bounds ds
-  CaseE e ms     -> free e \/ match_frees ms
-  LamCaseE ms    -> match_frees ms
-  CondE c e t    -> frees [c,e,t]
-  TupE es        -> frees es
-  UnboxedTupE es -> frees es
-  ListE es       -> frees es
-  ParensE e      -> free e
-  MultiIfE ges   -> frees (snd <$> ges)
-  DoE ss         -> stmt_frees ss
-  CompE ss       -> stmt_frees ss
-  ArithSeqE r    -> range_free r
-  SigE e t       -> free e
-  RecConE n fs   -> frees (snd `map` fs)
-  RecUpdE e fs   -> frees (e : snd `map` fs)
-  StaticE e      -> free e
-  UnboundVarE n  -> single n
-  ConE _         -> Set.empty
-  LitE _         -> Set.empty
-  VarE n         -> single n
+  VarE n              -> single n
+  ConE _              -> Set.empty
+  LitE _              -> Set.empty
+  InfixE ml o mr      -> frees $ catMaybes [ml, Just o, mr]
+  UInfixE l o r       -> frees [l,o,r]
+  AppE f e            -> frees [f,e]
+  AppTypeE e t        -> frees [e]
+  LamE ps e           -> free e \\ pat_bounds ps
+  LetE ds e           -> free e \\ dec_bounds ds
+  CaseE e ms          -> free e \/ match_frees ms
+  LamCaseE ms         -> match_frees ms
+  LamCasesE cs        -> clause_frees cs
+  CondE c e t         -> frees [c,e,t]
+  TupE mes            -> mfrees mes
+  UnboxedTupE mes     -> mfrees mes
+  UnboxedSumE e _ _   -> free e
+  ListE es            -> frees es
+  ParensE e           -> free e
+  MultiIfE ges        -> frees (snd <$> ges)
+  DoE mm ss           -> stmt_frees ss
+  MDoE mm ss          -> stmt_frees ss
+  CompE ss            -> stmt_frees ss
+  ArithSeqE r         -> range_free r
+  SigE e t            -> free e
+  RecConE n fs        -> frees (snd `map` fs)
+  RecUpdE e fs        -> frees (e : snd `map` fs)
+  StaticE e           -> free e
+  UnboundVarE n       -> single n
+  LabelE _            -> Set.empty
+  ImplicitParamVarE _ -> Set.empty
+  GetFieldE e _       -> free e
+  ProjectionE _       -> Set.empty
 
 unionMap f = Set.unions . map f
 frees = unionMap free
+mfrees = frees . catMaybes
 match_frees = unionMap match_free
 
 match_free (Match p b ds) =
   body_free b \\ (pat_bound p \/ dec_bounds ds)
+
+clause_frees = unionMap clause_free
+clause_free (Clause ps b ds) =
+  body_free b \\ (pat_bounds ps \/ dec_bounds ds)
 
 body_free = \case
   GuardedB ges -> frees (snd <$> ges)
@@ -339,6 +357,7 @@ stmt_frees = foldr cons Set.empty
     LetS ds   -> fs \\ dec_bounds ds
     NoBindS e -> fs \/ free e
     ParS sss  -> fs \/ unionMap stmt_frees sss
+    RecS ss   -> fs \/ stmt_frees ss
 
 range_free = \case
   FromR e              -> free e
@@ -359,12 +378,15 @@ pat_bound = Set.fromList . pat_vars
 pat_vars :: Pat -> [Name]
 pat_vars = \case
   VarP n -> [n]
+  AsP n p -> n : pat_vars p
   p -> pat_vars `concatMap` sub_patterns p
 
+sub_patterns :: Pat -> [Pat]
 sub_patterns = \case
   TupP ps        -> ps
   UnboxedTupP ps -> ps
-  ConP _ ps      -> ps
+  UnboxedSumP p _ _ -> [p]
+  ConP _ _ ps    -> ps
   InfixP x _ y   -> [x,y]
   UInfixP x _ y  -> [x,y]
   ParensP p      -> [p]
@@ -375,7 +397,7 @@ sub_patterns = \case
   ListP ps       -> ps
   SigP p _       -> [p]
   ViewP _ p      -> [p]
-  _              -> []
+  _              -> [] -- check that there aren't any more sub-patterns
 
 {-
 Local Variables:
